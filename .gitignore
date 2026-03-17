@@ -1,0 +1,36 @@
+# --- UV Specific ---
+.venv/                  # Virtual environment folder (auto-managed)
+.python-version         # Optional: can be checked in if you want to enforce version
+
+# --- Python General ---
+__pycache__/            # Byte-compiled files
+*.py[cod]
+*$py.class
+
+cache/
+
+# --- Distribution/Packaging ---
+dist/                   # Built distributions
+build/                  # Build artifacts
+*.egg-info/             # Metadata for older packaging tools
+
+# --- Test/Coverage Reports ---
+.coverage               # Coverage data file
+htmlcov/                # HTML coverage reports
+.pytest_cache/          # Pytest temporary files
+
+# --- Environment Secrets ---
+.env 
+
+# --- Mac Junk  ---
+.DS_Store
+
+# --- logs and databases  ---
+*.db
+*.csv
+*.log
+*.sqlite
+prompts/system_persona.md
+backup/*
+output/*
+.claude

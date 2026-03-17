@@ -1,0 +1,73 @@
+run:
+  dry_run: false
+  resume_runkey: ""
+
+input:
+  csv_path: "./config/urls.csv"
+
+output:
+  send_to_splunk: true
+  log_locally: true
+  local_output_dir: "./output"
+
+concurrency:
+  http_workers: 200
+  dns_workers: 500
+  tls_workers: 50
+  censys_qps: 10
+  request_timeout_s: 15
+  connect_timeout_s: 5
+
+checks:
+  enabled:
+    - http_headers
+    - tls
+    - dns_records
+    - email_security
+    - components
+    - censys_ports
+    - insecure_services
+    - open_redirect
+    - cert_transparency
+
+  http_headers:
+    follow_redirects: true
+    max_redirects: 10
+    user_agent: "CyberExposureScanner/1.0"
+
+  tls:
+    warn_expiry_days: 30
+    critical_expiry_days: 7
+
+  components:
+    check_well_known_paths: true
+    parse_html: false
+    nvd_api_key: ""
+    nvd_feed_cache_path: "./cache/nvd_feed.json.gz"
+    nvd_feed_max_age_days: 1
+
+  email_security:
+    check_spf: true
+    check_dmarc: true
+
+  cert_transparency:
+    lookback_days: 90
+    flag_unexpected_issuers: true
+
+  open_redirect: {}
+
+splunk:
+  url: ""
+  token: ""
+  index: "cyber_exposure"
+  source: "exposure_scanner"
+  verify_tls: true
+  batch_size: 100
+
+censys:
+  api_id: ""
+  api_secret: ""
+
+history:
+  enabled: true
+  db_path: "./output/history.db"
