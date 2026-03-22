@@ -229,7 +229,7 @@ def scan(
 
     if checks_override:
         requested = [c.strip() for c in checks_override.split(",") if c.strip()]
-        known = {"http_headers", "tls", "dns_records", "email_security", "components", "censys_ports", "insecure_services", "open_redirect", "cert_transparency"}
+        known = {"http_headers", "tls", "dns_records", "email_security", "components", "censys_ports", "insecure_services", "open_redirect", "cert_transparency", "cloud_storage"}
         unknown = set(requested) - known
         if unknown:
             typer.echo(f"WARNING: Unknown checks specified: {', '.join(sorted(unknown))}", err=True)
@@ -400,7 +400,7 @@ def report(
         "./config/settings.yaml", "--config", help="Path to settings.yaml"
     ),
     min_severity: str = typer.Option(
-        "high",
+        "medium",
         "--severity", "-s",
         help="Minimum severity to include: critical, high, medium, low, info",
     ),
@@ -488,6 +488,22 @@ def report(
 
     if top:
         filtered = filtered[:top]
+
+    # If nothing matched, show what's actually in the file to help the user
+    if not filtered:
+        all_sev: dict[str, int] = {}
+        all_stat: dict[str, int] = {}
+        for f in all_findings:
+            all_sev[f.get("severity", "?")] = all_sev.get(f.get("severity", "?"), 0) + 1
+            all_stat[f.get("status", "?")] = all_stat.get(f.get("status", "?"), 0) + 1
+        sev_str = "  ".join(f"{s.upper()}: {all_sev[s]}" for s in _SEVERITY_ORDER if s in all_sev)
+        stat_str = "  ".join(f"{k}: {v}" for k, v in sorted(all_stat.items()))
+        typer.echo(f"\nRun: {runkey}   Total in file: {len(all_findings)}")
+        typer.echo(f"  No findings match --severity {min_severity} --status {status_filter}")
+        typer.echo(f"  Available severities: {sev_str}")
+        typer.echo(f"  Available statuses:   {stat_str}")
+        typer.echo(f"  Try: exposures report {runkey} --severity low --status fail,warn,info")
+        raise typer.Exit(code=0)
 
     # Header summary
     sev_counts: dict[str, int] = {}

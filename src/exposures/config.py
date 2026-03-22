@@ -86,6 +86,7 @@ class ChecksConfig(BaseModel):
         "insecure_services",
         "open_redirect",
         "cert_transparency",
+        "cloud_storage",
     ]
     http_headers: HttpHeadersCheckConfig = Field(default_factory=HttpHeadersCheckConfig)
     tls: TLSCheckConfig = Field(default_factory=TLSCheckConfig)

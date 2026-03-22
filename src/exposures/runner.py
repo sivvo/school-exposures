@@ -21,6 +21,7 @@ from tqdm.asyncio import tqdm
 from .checks.base import BaseCheck
 from .checks.censys_ports import CensysPortsCheck
 from .checks.cert_transparency import CertTransparencyCheck
+from .checks.cloud_storage import CloudStorageCheck
 from .checks.components import ComponentsCheck
 from .checks.dns_records import DNSRecordsCheck
 from .checks.email_security import EmailSecurityCheck
@@ -170,6 +171,7 @@ def build_checks(config: Config) -> dict[str, BaseCheck]:
         "insecure_services": InsecureServicesCheck(),
         "open_redirect": OpenRedirectCheck(config=config.checks.open_redirect, semaphore=http_sem),
         "cert_transparency": CertTransparencyCheck(config=config.checks.cert_transparency),
+        "cloud_storage": CloudStorageCheck(http_semaphore=http_sem, dns_semaphore=dns_sem),
     }
     return {name: check for name, check in available.items() if name in config.checks.enabled}
 

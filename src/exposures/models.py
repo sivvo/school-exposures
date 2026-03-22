@@ -29,6 +29,7 @@ class CheckCategory(str, Enum):
     COMPONENTS = "components"
     NETWORK_EXPOSURE = "network_exposure"
     INSECURE_SERVICES = "insecure_services"
+    CLOUD_STORAGE = "cloud_storage"
 
 
 class Finding(BaseModel):
