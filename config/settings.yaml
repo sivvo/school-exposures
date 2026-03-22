@@ -29,6 +29,7 @@ checks:
     - insecure_services
     - open_redirect
     - cert_transparency
+    - cloud_storage
 
   http_headers:
     follow_redirects: true
