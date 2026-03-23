@@ -1,5 +1,5 @@
 # --- UV Specific ---
-.venv/                  # Virtual environment folder (auto-managed)
+.venv/
 .python-version         # Optional: can be checked in if you want to enforce version
 
 # --- Python General ---
