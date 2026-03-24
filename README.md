@@ -21,3 +21,23 @@ Usage: exposures [OPTIONS] COMMAND [ARGS]...
 │ diff    Compare two scan runs and show what changed.                             │
 │ scan    Scan URLs for cyber security exposure.                                   │
 ╰──────────────────────────────────────────────────────────────────────────────────╯
+
+Functionality / checks:
+  ┌────────────────────┬──────────────────────────────────────────────────────────────────────┐
+  │        Area        │                               Examples                               │
+  ├────────────────────┼──────────────────────────────────────────────────────────────────────┤
+  │ HTTP headers       │ HSTS, CSP, X-Frame-Options, cookie flags, info leakage               │
+  ├────────────────────┼──────────────────────────────────────────────────────────────────────┤
+  │ TLS/certificates   │ Expiry, weak protocols (TLS 1.0/1.1), self-signed, hostname mismatch │
+  ├────────────────────┼──────────────────────────────────────────────────────────────────────┤
+  │ DNS                │ DNSSEC, zone transfer (AXFR), dangling CNAMEs (subdomain takeover)   │
+  ├────────────────────┼──────────────────────────────────────────────────────────────────────┤
+  │ Email security     │ SPF, DMARC, MX records                                               │
+  ├────────────────────┼──────────────────────────────────────────────────────────────────────┤
+  │ Exposed services   │ Risky open ports (RDP, FTP, databases) via Censys; shadow IT ASNs    │
+  ├────────────────────┼──────────────────────────────────────────────────────────────────────┤
+  │ Exposed files/tech │ .git, .env, phpinfo, known vulnerable software versions              │
+  ├────────────────────┼──────────────────────────────────────────────────────────────────────┤
+  │ Cloud storage      │ Cloud storage exposure                                               │
+  └────────────────────┴──────────────────────────────────────────────────────────────────────┘
+
