@@ -16,7 +16,6 @@ from ..models import Finding, RunSummary
 
 logger = structlog.get_logger(__name__)
 
-
 class NDJSONWriter:
     """Async NDJSON file writer for findings."""
 

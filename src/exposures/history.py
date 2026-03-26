@@ -1,6 +1,6 @@
 """Historical findings storage and run delta computation.
 
-Uses SQLite (stdlib) to persist findings across runs and compute
+Uses SQLite to persist findings across runs and compute
 what changed between two runs.
 """
 from __future__ import annotations
@@ -72,10 +72,6 @@ class HistoryStore:
         self._db_path.parent.mkdir(parents=True, exist_ok=True)
         self._init_db()
 
-    # ------------------------------------------------------------------
-    # Internal
-    # ------------------------------------------------------------------
-
     def _conn(self) -> sqlite3.Connection:
         conn = sqlite3.connect(self._db_path)
         conn.row_factory = sqlite3.Row
@@ -84,10 +80,6 @@ class HistoryStore:
     def _init_db(self) -> None:
         with self._conn() as conn:
             conn.executescript(_SCHEMA)
-
-    # ------------------------------------------------------------------
-    # Write
-    # ------------------------------------------------------------------
 
     def store_finding(self, finding: Finding) -> None:
         ts = (
@@ -136,10 +128,6 @@ class HistoryStore:
                 ),
             )
 
-    # ------------------------------------------------------------------
-    # Read
-    # ------------------------------------------------------------------
-
     def list_runs(self) -> list[dict]:
         with self._conn() as conn:
             rows = conn.execute(
@@ -167,10 +155,6 @@ class HistoryStore:
                 (current_runkey,),
             ).fetchone()
             return row["runkey"] if row else None
-
-    # ------------------------------------------------------------------
-    # Delta
-    # ------------------------------------------------------------------
 
     def compute_delta(self, prev_runkey: str, curr_runkey: str) -> list[DeltaFinding]:
         """Compare two runs; return a list of DeltaFinding entries."""

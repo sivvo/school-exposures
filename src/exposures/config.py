@@ -1,6 +1,6 @@
 """Configuration management using pydantic-settings.
-
-YAML is the base config; environment variables override specific fields.
+settings.yaml
+env variables will override specific fields if present
 """
 from __future__ import annotations
 
@@ -12,26 +12,17 @@ import yaml
 from pydantic import BaseModel, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-
-# ---------------------------------------------------------------------------
-# Nested config models
-# ---------------------------------------------------------------------------
-
-
 class RunConfig(BaseModel):
     dry_run: bool = False
     resume_runkey: str = ""
 
-
 class InputConfig(BaseModel):
     csv_path: str = "./config/urls.csv"
-
 
 class OutputConfig(BaseModel):
     send_to_splunk: bool = True
     log_locally: bool = True
     local_output_dir: str = "./output"
-
 
 class ConcurrencyConfig(BaseModel):
     http_workers: int = 200
@@ -45,8 +36,8 @@ class ConcurrencyConfig(BaseModel):
 class HttpHeadersCheckConfig(BaseModel):
     follow_redirects: bool = True
     max_redirects: int = 10
-    user_agent: str = "CyberExposureScanner/1.0"
-
+    #TODO the user_agent is hard coded in multiple places - make this reference a consistent static variable
+    user_agent: str = "DfE-CyberExposureScanner/1.0"
 
 class TLSCheckConfig(BaseModel):
     warn_expiry_days: int = 30
@@ -110,11 +101,6 @@ class CensysConfig(BaseModel):
     api_secret: str = ""
 
 
-# ---------------------------------------------------------------------------
-# Root config — loaded from YAML then env-var overrides applied
-# ---------------------------------------------------------------------------
-
-
 class HistoryConfig(BaseModel):
     enabled: bool = True
     db_path: str = "./output/history.db"
@@ -130,7 +116,6 @@ class Config(BaseModel):
     censys: CensysConfig = Field(default_factory=CensysConfig)
     history: HistoryConfig = Field(default_factory=HistoryConfig)
 
-
 def _deep_merge(base: dict, override: dict) -> dict:
     """Recursively merge override into base, returning a new dict."""
     result = dict(base)
@@ -141,15 +126,12 @@ def _deep_merge(base: dict, override: dict) -> dict:
             result[key] = value
     return result
 
-
 def load_config(yaml_path: str | Path = "./config/settings.yaml") -> Config:
-    """Load configuration from YAML file with environment variable overrides.
-
-    Environment variables that are honoured:
-        SPLUNK_HEC_TOKEN  → splunk.token
-        CENSYS_API_ID     → censys.api_id
-        CENSYS_API_SECRET → censys.api_secret
-        NVD_API_KEY       → checks.components.nvd_api_key
+    """Load configuration from the settings.yaml file with environment variable overrides.
+       SPLUNK_HEC_TOKEN: splunk.token
+       censys.api_id
+       CENSYS_API_SECRET: censys.api_secret
+       NVD_API_KEY: checks.components.nvd_api_key      
     """
     yaml_path = Path(yaml_path)
 

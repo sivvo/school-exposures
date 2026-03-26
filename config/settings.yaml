@@ -34,7 +34,7 @@ checks:
   http_headers:
     follow_redirects: true
     max_redirects: 10
-    user_agent: "CyberExposureScanner/1.0"
+    user_agent: "DFE-CyberExposureScanner/1.0"
 
   tls:
     warn_expiry_days: 30

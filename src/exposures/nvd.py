@@ -9,6 +9,8 @@ Rate limits (enforced here):
   With API key:   50 requests per 30 seconds
 
 Reference: https://nvd.nist.gov/developers/vulnerabilities
+Get a key from nvd.nist.gov
+
 """
 from __future__ import annotations
 
@@ -163,7 +165,6 @@ def _parse_response(data: dict) -> list[dict]:
         if not cve_id:
             continue
 
-        # English description
         description = next(
             (d["value"] for d in cve.get("descriptions", []) if d.get("lang") == "en"),
             ""

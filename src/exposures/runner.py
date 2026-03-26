@@ -1,4 +1,5 @@
-"""Main scan runner.
+"""
+Main scan runner
 
 Orchestrates loading targets, running checks concurrently,
 streaming findings to output writers, and maintaining a checkpoint
@@ -38,12 +39,6 @@ from .output.splunk_hec import SplunkHECWriter
 
 logger = structlog.get_logger(__name__)
 
-
-# ---------------------------------------------------------------------------
-# URL normalisation
-# ---------------------------------------------------------------------------
-
-
 def normalise_url(raw: str) -> str:
     """Normalise a URL: add https:// if schemeless, strip trailing slash, lowercase host."""
     raw = raw.strip()
@@ -71,12 +66,6 @@ def extract_domain(url: str) -> str:
         return f"{ext.domain}.{ext.suffix}"
     # Fallback to hostname
     return urlparse(url).hostname or url
-
-
-# ---------------------------------------------------------------------------
-# CSV loading
-# ---------------------------------------------------------------------------
-
 
 def load_targets(csv_path: str | Path) -> list[ScanTarget]:
     """Load and normalise targets from CSV file."""
@@ -121,8 +110,6 @@ def load_targets(csv_path: str | Path) -> list[ScanTarget]:
 # ---------------------------------------------------------------------------
 # Checkpoint
 # ---------------------------------------------------------------------------
-
-
 def checkpoint_path(output_dir: str | Path, runkey: str) -> Path:
     return Path(output_dir) / "checkpoints" / f"{runkey}.json"
 
@@ -179,7 +166,6 @@ def build_checks(config: Config) -> dict[str, BaseCheck]:
 # ---------------------------------------------------------------------------
 # Per-target scan
 # ---------------------------------------------------------------------------
-
 
 async def scan_target(
     target: ScanTarget,
@@ -241,9 +227,8 @@ async def scan_target(
 
 
 # ---------------------------------------------------------------------------
-# Findings statistics helpers
+# Findings stat helpers
 # ---------------------------------------------------------------------------
-
 
 def _update_summary_stats(summary: RunSummary, findings: list[Finding]) -> None:
     summary.total_findings += len(findings)
@@ -254,17 +239,12 @@ def _update_summary_stats(summary: RunSummary, findings: list[Finding]) -> None:
         summary.findings_by_category[cat] = summary.findings_by_category.get(cat, 0) + 1
 
 
-# ---------------------------------------------------------------------------
-# Main run function
-# ---------------------------------------------------------------------------
-
-
 async def run_scan(config: Config, runkey: str) -> RunSummary:
     """Full scan execution: load targets, run checks, write output, checkpoint."""
     started_at = datetime.now(timezone.utc)
 
     # ------------------------------------------------------------------
-    # 1. Load and normalise targets
+    # Load and normalise targets
     # ------------------------------------------------------------------
     logger.info("loading_targets", csv_path=config.input.csv_path)
     try:
@@ -276,7 +256,7 @@ async def run_scan(config: Config, runkey: str) -> RunSummary:
     logger.info("targets_loaded", count=len(targets))
 
     # ------------------------------------------------------------------
-    # 2. Dry run
+    # Dry run - no scans
     # ------------------------------------------------------------------
     if config.run.dry_run:
         print(f"\nDRY RUN — runkey: {runkey}")
@@ -293,7 +273,7 @@ async def run_scan(config: Config, runkey: str) -> RunSummary:
         )
 
     # ------------------------------------------------------------------
-    # 3. Checkpoint / resume
+    # Checkpoint / resume
     # ------------------------------------------------------------------
     completed_urls: dict[str, bool] = {}
     resume_key = config.run.resume_runkey
@@ -312,14 +292,7 @@ async def run_scan(config: Config, runkey: str) -> RunSummary:
         skipped=len(targets) - len(pending_targets),
     )
 
-    # ------------------------------------------------------------------
-    # 4. Build checks
-    # ------------------------------------------------------------------
     checks = build_checks(config)
-
-    # ------------------------------------------------------------------
-    # 5. Summary object
-    # ------------------------------------------------------------------
     summary = RunSummary(
         runkey=runkey,
         started_at=started_at,
@@ -327,9 +300,6 @@ async def run_scan(config: Config, runkey: str) -> RunSummary:
         completed_targets=len(targets) - len(pending_targets),
     )
 
-    # ------------------------------------------------------------------
-    # 6. Output writers
-    # ------------------------------------------------------------------
     output_dir = Path(config.output.local_output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -367,7 +337,7 @@ async def run_scan(config: Config, runkey: str) -> RunSummary:
         if sp:
             await sp.close()
 
-    # History store (optional)
+    # History store 
     history: HistoryStore | None = None
     if config.history.enabled:
         history = HistoryStore(config.history.db_path)
@@ -385,7 +355,7 @@ async def run_scan(config: Config, runkey: str) -> RunSummary:
 
     try:
         # ------------------------------------------------------------------
-        # 7. Scan each target with progress bar
+        # Scan each target with progress bar
         # ------------------------------------------------------------------
         checkpoint_lock = asyncio.Lock()
 
@@ -415,7 +385,7 @@ async def run_scan(config: Config, runkey: str) -> RunSummary:
                     save_checkpoint(config.output.local_output_dir, runkey, completed_urls)
 
         # Run all targets with tqdm progress bar
-        # We use asyncio.gather with a semaphore to limit total concurrency at the
+        # Using asyncio.gather with a semaphore to limit total concurrency at the
         # target level. Individual checks have their own semaphores.
         TARGET_CONCURRENCY = 50
         target_sem = asyncio.Semaphore(TARGET_CONCURRENCY)
@@ -434,9 +404,6 @@ async def run_scan(config: Config, runkey: str) -> RunSummary:
         ):
             await coro
 
-        # ------------------------------------------------------------------
-        # 8. Finalise summary
-        # ------------------------------------------------------------------
         summary.completed_at = datetime.now(timezone.utc)
         logger.info(
             "scan_complete",
@@ -447,7 +414,6 @@ async def run_scan(config: Config, runkey: str) -> RunSummary:
             errors=len(summary.errors),
         )
 
-        # Persist final run summary to history and compute delta
         if history:
             history.upsert_run(summary)
             prev_runkey = history.get_previous_runkey(runkey)
@@ -468,7 +434,6 @@ async def run_scan(config: Config, runkey: str) -> RunSummary:
                 if ndjson_writer:
                     await ndjson_writer.write_raw(delta_event)
 
-        # Write summary to outputs
         if ndjson_writer:
             await ndjson_writer.write_summary(summary)
         if splunk_writer:

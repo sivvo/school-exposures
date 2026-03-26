@@ -25,11 +25,6 @@ from .config import load_config
 from .history import HistoryStore
 from .runner import run_scan
 
-# ---------------------------------------------------------------------------
-# Logging setup
-# ---------------------------------------------------------------------------
-
-
 def _configure_logging(level: str = "INFO") -> None:
     """Configure structlog to write to stderr in a human-readable format."""
     import logging
@@ -53,22 +48,16 @@ def _configure_logging(level: str = "INFO") -> None:
         cache_logger_on_first_use=True,
     )
 
-
 # ---------------------------------------------------------------------------
 # Runkey generation
+# Used to create a unique run identifier in order to group results and track 
+# deltas between runs
 # ---------------------------------------------------------------------------
-
-
 def generate_runkey() -> str:
     """Generate a runkey in format YYYY-MM-DD-<8-char-uuid>."""
     today = date.today().strftime("%Y-%m-%d")
     short_uuid = str(uuid.uuid4()).replace("-", "")[:8]
     return f"{today}-{short_uuid}"
-
-
-# ---------------------------------------------------------------------------
-# Typer app
-# ---------------------------------------------------------------------------
 
 app = typer.Typer(
     name="exposures",
@@ -84,11 +73,11 @@ app = typer.Typer(
 scan_app = typer.Typer(name="scan", help="Scan URLs for cyber security exposure.", add_completion=False)
 app.add_typer(scan_app, name="scan")
 
-
 # ---------------------------------------------------------------------------
-# Capability check
+# Capability check - show which functions are available for scanning
+# (e.g., key is available in the config file)
+# or which functions user has called in the parameters
 # ---------------------------------------------------------------------------
-
 def _capability_line(status: str, label: str, detail: str) -> None:
     colours = {
         "OK":       typer.colors.GREEN,
@@ -106,7 +95,6 @@ def print_capabilities(cfg) -> None:
     typer.echo("\nCapabilities")
     typer.echo("─" * 60)
 
-    # Output
     outputs = []
     if cfg.output.send_to_splunk:
         if cfg.splunk.url and cfg.splunk.token:
@@ -202,9 +190,6 @@ def scan(
     _configure_logging(log_level)
     log = structlog.get_logger(__name__)
 
-    # ------------------------------------------------------------------
-    # Load config
-    # ------------------------------------------------------------------
     try:
         cfg = load_config(config_path)
     except FileNotFoundError:
@@ -218,9 +203,6 @@ def scan(
         typer.echo(f"ERROR: Failed to load configuration: {exc}", err=True)
         raise typer.Exit(code=1)
 
-    # ------------------------------------------------------------------
-    # Apply CLI overrides
-    # ------------------------------------------------------------------
     if dry_run:
         cfg.run.dry_run = True
 
@@ -253,21 +235,12 @@ def scan(
             )
             raise typer.Exit(code=1)
 
-    # ------------------------------------------------------------------
-    # Determine runkey
-    # ------------------------------------------------------------------
     effective_runkey = runkey or generate_runkey()
     log.info("scan_initiated", runkey=effective_runkey, dry_run=cfg.run.dry_run)
 
-    # ------------------------------------------------------------------
-    # Capability check
-    # ------------------------------------------------------------------
     if not cfg.run.dry_run:
         print_capabilities(cfg)
 
-    # ------------------------------------------------------------------
-    # Execute scan
-    # ------------------------------------------------------------------
     try:
         summary = asyncio.run(run_scan(cfg, effective_runkey))
     except KeyboardInterrupt:
@@ -280,6 +253,8 @@ def scan(
 
     # ------------------------------------------------------------------
     # Print summary to stdout
+    # TODO: this needs to be configurable, in a deployed server mode we don't 
+    # want to be spamming the console
     # ------------------------------------------------------------------
     if not cfg.run.dry_run:
         typer.echo("\n" + "=" * 60)
@@ -321,7 +296,6 @@ _SEV_COLOUR = {
     "info":     typer.colors.BRIGHT_BLACK,
 }
 
-
 def _load_ndjson(path: Path) -> list[dict]:
     findings = []
     with path.open(encoding="utf-8") as fh:
@@ -338,10 +312,8 @@ def _load_ndjson(path: Path) -> list[dict]:
                 pass
     return findings
 
-
 def _truncate(s: str, n: int) -> str:
     return s if len(s) <= n else s[: n - 1] + "…"
-
 
 def _print_table(findings: list[dict], show_evidence: bool) -> None:
     if not findings:
@@ -391,7 +363,6 @@ def _print_table(findings: list[dict], show_evidence: bool) -> None:
             typer.echo(f"  evidence: {json.dumps(f['evidence'])}")
 
     typer.echo(sep)
-
 
 @app.command("report")
 def report(
@@ -450,7 +421,6 @@ def report(
         typer.echo(f"  Run 'exposures runs' to list available run keys.", err=True)
         raise typer.Exit(code=1)
 
-    # Load and parse
     all_findings = _load_ndjson(ndjson_path)
     if not all_findings:
         typer.echo("No findings in file.")
@@ -460,7 +430,6 @@ def report(
     min_rank = _SEVERITY_RANK.get(min_severity.lower(), 0)
     allowed_statuses = {s.strip().lower() for s in status_filter.split(",")}
 
-    # Filter
     filtered = []
     for f in all_findings:
         sev = f.get("severity", "info").lower()
@@ -489,7 +458,6 @@ def report(
     if top:
         filtered = filtered[:top]
 
-    # If nothing matched, show what's actually in the file to help the user
     if not filtered:
         all_sev: dict[str, int] = {}
         all_stat: dict[str, int] = {}
@@ -518,7 +486,6 @@ def report(
     )
     typer.echo(f"\nRun: {runkey}   Findings: {len(filtered)}   {count_str}\n")
 
-    # Output
     if output_format == "json":
         typer.echo(json.dumps(filtered, indent=2, default=str))
 
@@ -569,7 +536,6 @@ def list_runs(
             f"{r['runkey']:<35} {started:<25} {r.get('total_targets', 0):>8} {r.get('total_findings', 0):>9}"
         )
     typer.echo("")
-
 
 @app.command("diff")
 def diff_runs(
@@ -635,7 +601,6 @@ def diff_runs(
             typer.echo(f"      {d.check_name}{sev_info}")
         typer.echo("")
 
-    # Summary line
     summary_parts = []
     for change_type in order:
         count = len(by_change.get(change_type, []))
@@ -644,11 +609,9 @@ def diff_runs(
     typer.echo("  Summary: " + "  |  ".join(summary_parts))
     typer.echo("")
 
-
 def main() -> None:
     """Package entry point."""
     app()
-
 
 if __name__ == "__main__":
     main()
