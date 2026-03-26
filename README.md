@@ -1,16 +1,18 @@
 ## Cyber exposure scanner — scans external URLs for security posture.   
 
-A set of security tests designed to find vulerabilities through non-destructive means. 
-Designed to send data to Splunk via HEC but can produce local Json output
-be ran against a URL designed to be ingested into Splunk 
+A set of security tests designed to find vulerabilities through non-destructive/non-malicious means. 
+Testing an idea of a centrally provisioned EASM platform for wide-deployment across UK schools
 
-First run: create some env variables
-- SPLUNK_HEC_TOKEN=<splunk-hec-token-here>
-- CENSYS_API_ID=<id>
+Can create local output (ndjson) or send to Splunk via HEC (not tested in full streaming mode yet - just manual import of the json output)
+
+## First run: create some env variables
+
+- SPLUNK_HEC_TOKEN=<splunk-hec-token-here> # if logging to splunk
+- CENSYS_API_ID=<id> # if using censys api (££££)
 - CENSYS_API_SECRET=<secret>>
-- NVD_API_KEY=<key>
+- NVD_API_KEY=<key> # if using NVD (free)
 
-Then create a CSV of urls (targets to scan) in config/urls.csv
+## Then create a CSV of urls (targets to scan) in config/urls.csv
 
 ---                                                                                                      
 

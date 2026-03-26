@@ -1,0 +1,3 @@
+- [ ] Censys throws errors when there is an issue with the API key
+- [ ] Need to think about the delta logic - it's useful to compare between runs, but thinking about the case where the censys api limit is reached mid-run, we end up with incomplete runs. Splitting into multiple staggered runs would break the delta functionality because you could no longer consider a single run against a previous run in isolation
+- [ ] Console logging needs to be configutable. in automated mode it needs to be quiet and only log important events
