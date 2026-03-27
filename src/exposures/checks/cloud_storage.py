@@ -8,12 +8,11 @@ Detects whether a target URL is backed by a public cloud storage bucket
 For detected buckets, probes whether the bucket is publicly listable.
 """
 from __future__ import annotations
-
-import asyncio
-import re
 from typing import Any
 from urllib.parse import urlparse
 
+import asyncio
+import re
 import aiohttp
 import dns.asyncresolver
 import dns.exception
@@ -62,7 +61,6 @@ def _match_cloud_storage(hostname: str) -> tuple[str, str | None] | None:
             return provider, name
     return None
 
-
 async def _resolve_cname_chain(
     hostname: str,
     resolver: dns.asyncresolver.Resolver,
@@ -85,7 +83,6 @@ async def _resolve_cname_chain(
             break
     return chain
 
-
 class CloudStorageCheck(BaseCheck):
     name = "cloud_storage"
     category = CheckCategory.CLOUD_STORAGE
@@ -107,12 +104,12 @@ class CloudStorageCheck(BaseCheck):
         resolver.timeout = 10
         resolver.lifetime = 15
 
-        # 1. Check if the hostname itself is a cloud storage endpoint
+        # Check if the hostname itself is a cloud storage endpoint
         provider_name = _match_cloud_storage(hostname)
         storage_host = hostname
         linkage = "direct"
 
-        # 2. Walk the full CNAME chain
+        # Walk the full CNAME chain
         if not provider_name:
             chain = await _resolve_cname_chain(hostname, resolver, self._dns_sem)
             for hop in chain:
@@ -123,7 +120,7 @@ class CloudStorageCheck(BaseCheck):
                     linkage = "cname"
                     break
 
-        # 3. Follow HTTP redirects if DNS gave us nothing
+        # Follow HTTP redirects if DNS gave us nothing
         final_url: str | None = None
         if not provider_name:
             final_url, provider_name, storage_host = await self._check_redirect(target.url)

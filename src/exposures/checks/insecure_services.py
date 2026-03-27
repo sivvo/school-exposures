@@ -5,13 +5,10 @@ It takes the full list of findings and produces cross-cutting findings
 by correlating results from different check categories.
 """
 from __future__ import annotations
-
-import asyncio
 from typing import Any
-
 from ..models import CheckCategory, Finding, ScanTarget, Severity, Status
 from .base import BaseCheck
-
+import asyncio
 
 class InsecureServicesCheck(BaseCheck):
     name = "insecure_services"

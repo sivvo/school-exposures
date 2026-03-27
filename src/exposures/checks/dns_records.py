@@ -7,10 +7,9 @@ Uses dnspython async resolver to check:
 - Dangling CNAME (subdomain takeover indicators)
 """
 from __future__ import annotations
-
-import asyncio
 from typing import Any
 
+import asyncio
 import dns.asyncresolver
 import dns.exception
 import dns.flags
@@ -312,12 +311,6 @@ class DNSRecordsCheck(BaseCheck):
             ]
         except Exception:
             return []
-
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
 
 def _extract_hostname(url: str) -> str:
     from urllib.parse import urlparse

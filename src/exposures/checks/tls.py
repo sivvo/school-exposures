@@ -4,11 +4,6 @@ Uses the standard ssl module to connect and the cryptography library
 to inspect the certificate in detail.
 """
 from __future__ import annotations
-
-import asyncio
-import ipaddress
-import socket
-import ssl
 from datetime import datetime, timezone
 from typing import Any
 
@@ -19,6 +14,10 @@ from cryptography.x509.oid import ExtensionOID, NameOID
 from ..models import CheckCategory, Finding, ScanTarget, Severity, Status
 from .base import BaseCheck
 
+import asyncio
+import ipaddress
+import socket
+import ssl
 
 class TLSCheck(BaseCheck):
     name = "tls"
@@ -71,7 +70,7 @@ class TLSCheck(BaseCheck):
 
         now = datetime.now(timezone.utc)
 
-        # --- Expiry checks ---
+        # Expiry check
         not_after = cert.not_valid_after_utc
         days_until_expiry = (not_after - now).days
 
@@ -125,7 +124,7 @@ class TLSCheck(BaseCheck):
                 )
             )
 
-        # --- Hostname mismatch ---
+        # Hostname mismatch
         hostname_ok = _check_hostname_match(cert, hostname)
         if hostname_ok:
             findings.append(
@@ -148,7 +147,7 @@ class TLSCheck(BaseCheck):
                 )
             )
 
-        # --- Self-signed check ---
+        #  Self-signed check 
         is_self_signed = _is_self_signed(cert)
         if is_self_signed:
             findings.append(
@@ -169,10 +168,10 @@ class TLSCheck(BaseCheck):
                 )
             )
 
-        # --- Protocol version checks ---
+        # Protocol version checks
         findings += await self._check_weak_protocols(target, runkey, hostname, port)
 
-        # --- Minimum protocol info ---
+        #  Minimum protocol info 
         min_proto = ssl_version or "unknown"
         findings.append(
             self.make_finding(
@@ -183,7 +182,7 @@ class TLSCheck(BaseCheck):
             )
         )
 
-        # --- Certificate transparency (SCT extension) ---
+        #  Certificate transparency (SCT extension)
         findings += self._check_cert_transparency(target, runkey, cert)
 
         return findings
@@ -265,7 +264,6 @@ class TLSCheck(BaseCheck):
 # ---------------------------------------------------------------------------
 # Low-level helpers (run in executor to avoid blocking event loop)
 # ---------------------------------------------------------------------------
-
 
 def _connect_and_get_cert(
     hostname: str, port: int

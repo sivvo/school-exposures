@@ -6,17 +6,17 @@ unexpected issuers, recently issued certs, and wildcard certificates.
 from __future__ import annotations
 
 import asyncio
+import aiohttp
 from datetime import datetime, timedelta, timezone
 from typing import Any
-
-import aiohttp
-
 from ..models import CheckCategory, Finding, ScanTarget, Severity, Status
 from .base import BaseCheck
 
 CRT_SH_URL = "https://crt.sh/"
 
-# Substrings to match against issuer_name — extend as needed for your org's CAs
+# Substrings to match against issuer_name  
+# TODO : review and extend - but first validate that this logic makes sense
+
 EXPECTED_ISSUER_SUBSTRINGS: list[str] = [
     "Let's Encrypt",
     "DigiCert",
@@ -34,7 +34,6 @@ EXPECTED_ISSUER_SUBSTRINGS: list[str] = [
     "ZeroSSL",
     "ISRG",  # Let's Encrypt root
 ]
-
 
 class CertTransparencyCheck(BaseCheck):
     name = "cert_transparency"

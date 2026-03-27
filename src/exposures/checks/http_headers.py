@@ -4,16 +4,14 @@ Examines response headers for security best practices and produces one
 Finding per sub-check.
 """
 from __future__ import annotations
+from typing import Any
+from urllib.parse import urlparse, urlunparse
+from ..models import CheckCategory, Finding, ScanTarget, Severity, Status
+from .base import BaseCheck
 
 import asyncio
 import re
-from typing import Any
-from urllib.parse import urlparse, urlunparse
-
 import aiohttp
-
-from ..models import CheckCategory, Finding, ScanTarget, Severity, Status
-from .base import BaseCheck
 
 
 class HttpHeadersCheck(BaseCheck):
@@ -22,10 +20,6 @@ class HttpHeadersCheck(BaseCheck):
 
     def __init__(self, config: Any) -> None:
         self._cfg = config  # HttpHeadersCheckConfig
-
-    # ------------------------------------------------------------------
-    # Public entry point
-    # ------------------------------------------------------------------
 
     async def run(self, target: ScanTarget, runkey: str) -> list[Finding]:
         findings: list[Finding] = []
@@ -59,10 +53,6 @@ class HttpHeadersCheck(BaseCheck):
             findings.append(self.make_error(target, runkey, "http_headers", exc))
         return findings
 
-    # ------------------------------------------------------------------
-    # Fetch helpers
-    # ------------------------------------------------------------------
-
     async def _fetch_https(
         self, session: aiohttp.ClientSession, url: str
     ) -> tuple[dict | None, list[str], str]:
@@ -75,7 +65,7 @@ class HttpHeadersCheck(BaseCheck):
                 headers={"User-Agent": self._cfg.user_agent},
             ) as resp:
                 headers = dict(resp.headers)
-                # Use getall to capture every Set-Cookie header (dict() would lose duplicates)
+                # Use getall to capture every Set-Cookie header
                 raw_cookies = resp.headers.getall("Set-Cookie", [])
                 return headers, raw_cookies, str(resp.url)
         except Exception:
@@ -144,10 +134,6 @@ class HttpHeadersCheck(BaseCheck):
                 )
             ]
 
-    # ------------------------------------------------------------------
-    # HSTS checks
-    # ------------------------------------------------------------------
-
     def _check_hsts(
         self, target: ScanTarget, runkey: str, headers: dict
     ) -> list[Finding]:
@@ -162,7 +148,7 @@ class HttpHeadersCheck(BaseCheck):
                     "Strict-Transport-Security header is missing",
                 )
             )
-            # Sub-checks are irrelevant without the header
+
             return findings
 
         findings.append(
@@ -237,10 +223,6 @@ class HttpHeadersCheck(BaseCheck):
 
         return findings
 
-    # ------------------------------------------------------------------
-    # CSP checks
-    # ------------------------------------------------------------------
-
     def _check_csp(
         self, target: ScanTarget, runkey: str, headers: dict
     ) -> list[Finding]:
@@ -306,9 +288,6 @@ class HttpHeadersCheck(BaseCheck):
 
         return findings
 
-    # ------------------------------------------------------------------
-    # Other header checks
-    # ------------------------------------------------------------------
 
     def _check_x_frame_options(
         self, target: ScanTarget, runkey: str, headers: dict
@@ -517,11 +496,6 @@ class HttpHeadersCheck(BaseCheck):
                 )
 
         return findings
-
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
 
 
 def _header(headers: dict, name: str) -> str | None:

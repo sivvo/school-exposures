@@ -3,18 +3,15 @@
 DKIM is skipped — requires knowing the selector in advance.
 """
 from __future__ import annotations
-
-import asyncio
-import re
 from typing import Any
-
-import dns.asyncresolver
-import dns.exception
-import dns.resolver
-
 from ..models import CheckCategory, Finding, ScanTarget, Severity, Status
 from .base import BaseCheck
 
+import asyncio
+import re
+import dns.asyncresolver
+import dns.exception
+import dns.resolver
 
 class EmailSecurityCheck(BaseCheck):
     name = "email_security"
@@ -67,7 +64,7 @@ class EmailSecurityCheck(BaseCheck):
         return findings
 
     # ------------------------------------------------------------------
-    # MX
+    # MX record
     # ------------------------------------------------------------------
 
     async def _check_mx(
@@ -97,7 +94,7 @@ class EmailSecurityCheck(BaseCheck):
                 return [], [self.make_error(target, runkey, "mx_records_present", exc)]
 
     # ------------------------------------------------------------------
-    # SPF
+    # SPF policy
     # ------------------------------------------------------------------
 
     async def _check_spf(
@@ -234,7 +231,7 @@ class EmailSecurityCheck(BaseCheck):
         ]
 
     # ------------------------------------------------------------------
-    # DMARC
+    # DMARC check
     # ------------------------------------------------------------------
 
     async def _check_dmarc(
@@ -280,12 +277,10 @@ class EmailSecurityCheck(BaseCheck):
                 evidence={"dmarc_record": dmarc_record},
             )
         )
-
-        # Parse tags
+        
         tags = _parse_dmarc_tags(dmarc_record)
-
-        # Policy check
-        policy = tags.get("p", "").lower()
+        
+        policy = tags.get("p", "").lower() # Policy check
         if policy == "none":
             findings.append(
                 self.make_finding(
@@ -377,12 +372,6 @@ class EmailSecurityCheck(BaseCheck):
             Status.INFO, Severity.INFO,
             "DKIM check skipped - requires selector knowledge",
         )
-
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
 
 def _parse_dmarc_tags(record: str) -> dict[str, str]:
     """Parse DMARC tag=value pairs from a DMARC TXT record string."""

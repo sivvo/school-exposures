@@ -3,15 +3,13 @@
 Tests common redirect parameters to identify unvalidated redirect vulnerabilities.
 """
 from __future__ import annotations
-
-import asyncio
 from typing import Any
 from urllib.parse import urlparse
-
-import aiohttp
-
 from ..models import CheckCategory, Finding, ScanTarget, Severity, Status
 from .base import BaseCheck
+
+import asyncio
+import aiohttp
 
 # Canary value — clearly invalid, used to detect if the app reflects it in Location
 CANARY_DOMAIN = "openredirect-canary.invalid"
@@ -27,7 +25,6 @@ REDIRECT_PARAMS = [
     "dest",
     "redirect_uri",
 ]
-
 
 class OpenRedirectCheck(BaseCheck):
     name = "open_redirect"

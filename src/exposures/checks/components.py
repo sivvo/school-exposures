@@ -8,11 +8,9 @@ from __future__ import annotations
 
 import asyncio
 import re
+import aiohttp
 from typing import Any
 from urllib.parse import urljoin, urlparse
-
-import aiohttp
-
 from ..models import CheckCategory, Finding, ScanTarget, Severity, Status
 from ..nvd import NVDClient, NVD_SEVERITY_MAP
 from .base import BaseCheck
@@ -284,7 +282,7 @@ class ComponentsCheck(BaseCheck):
             if isinstance(result, list):
                 findings += result
             elif isinstance(result, Exception):
-                pass  # swallow probe-level errors silently
+                pass 
         return findings
 
     async def _probe_path(
@@ -523,11 +521,6 @@ class ComponentsCheck(BaseCheck):
                         break
 
         return findings
-
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
 
 
 def _header(headers: dict, name: str) -> str | None:

@@ -5,14 +5,11 @@ and generates findings for risky services.
 """
 from __future__ import annotations
 
-import asyncio
 from typing import Any
-
 from ..models import CheckCategory, Finding, ScanTarget, Severity, Status
 from .base import BaseCheck
+import asyncio
 
-
-# Port → (check_name, severity, detail_template)
 RISKY_PORTS: dict[int, tuple[str, Severity, str]] = {
     21: ("insecure_port_ftp", Severity.HIGH, "FTP service exposed to internet on port 21 (unencrypted)"),
     23: ("insecure_port_telnet", Severity.CRITICAL, "Telnet service exposed to internet on port 23 (unencrypted)"),
@@ -32,7 +29,6 @@ CLOUD_ASN_KEYWORDS: list[str] = [
     "AMAZON", "MICROSOFT", "GOOGLE", "DIGITALOCEAN", "LINODE",
     "VULTR", "HETZNER", "OVH", "ALIBABA", "ORACLE",
 ]
-
 
 class CensysPortsCheck(BaseCheck):
     name = "censys_ports"
@@ -135,6 +131,7 @@ class CensysPortsCheck(BaseCheck):
                 )
 
             # Shadow IT: unexpected cloud provider ASN
+            # TODO: validate this check - cursory review of the findings for a run didn't seem reliable
             asn_desc = port_info.get("asn_description", "").upper()
             if asn_desc:
                 for keyword in CLOUD_ASN_KEYWORDS:
