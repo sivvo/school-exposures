@@ -25,10 +25,13 @@ from .checks.cert_transparency import CertTransparencyCheck
 from .checks.cloud_storage import CloudStorageCheck
 from .checks.components import ComponentsCheck
 from .checks.dns_records import DNSRecordsCheck
+from .checks.dnsbl import DNSBLCheck
+from .checks.domain_expiry import DomainExpiryCheck
 from .checks.email_security import EmailSecurityCheck
 from .checks.http_headers import HttpHeadersCheck
 from .checks.insecure_services import InsecureServicesCheck
 from .checks.open_redirect import OpenRedirectCheck
+from .checks.safe_browsing import SafeBrowsingCheck
 from .checks.tls import TLSCheck
 from .config import Config
 from .history import HistoryStore
@@ -158,7 +161,10 @@ def build_checks(config: Config) -> dict[str, BaseCheck]:
         "insecure_services": InsecureServicesCheck(),
         "open_redirect": OpenRedirectCheck(config=config.checks.open_redirect, semaphore=http_sem),
         "cert_transparency": CertTransparencyCheck(config=config.checks.cert_transparency),
-        "cloud_storage": CloudStorageCheck(http_semaphore=http_sem, dns_semaphore=dns_sem),
+        "cloud_storage":  CloudStorageCheck(http_semaphore=http_sem, dns_semaphore=dns_sem),
+        "domain_expiry":  DomainExpiryCheck(),
+        "safe_browsing":  SafeBrowsingCheck(api_key=config.checks.safe_browsing.api_key, semaphore=http_sem),
+        "dnsbl":          DNSBLCheck(semaphore=dns_sem),
     }
     return {name: check for name, check in available.items() if name in config.checks.enabled}
 

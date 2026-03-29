@@ -1,0 +1,1680 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>School Cyber Exposure</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      font-size: 14px; background: #f1f5f9; color: #1e293b; min-height: 100vh;
+    }
+
+    header {
+      background: #1e293b; color: #f8fafc;
+      padding: 12px 20px; display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
+    }
+    header h1 { font-size: 15px; font-weight: 600; white-space: nowrap; flex-shrink: 0; }
+    .controls { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; flex: 1; }
+    .controls select, .controls input[type="text"] {
+      background: #334155; color: #f8fafc; border: 1px solid #475569;
+      border-radius: 5px; padding: 5px 9px; font-size: 13px; outline: none;
+    }
+    .controls select:focus, .controls input[type="text"]:focus { border-color: #94a3b8; }
+    #runSelect { min-width: 230px; }
+    #searchInput { min-width: 160px; }
+    .btn {
+      background: #334155; color: #f8fafc; border: 1px solid #475569;
+      border-radius: 5px; padding: 5px 11px; font-size: 13px; cursor: pointer; white-space: nowrap;
+    }
+    .btn:hover { background: #475569; }
+    .btn.accent { background: #7c3aed; border-color: #7c3aed; }
+    .btn.accent:hover { background: #6d28d9; }
+
+    /* ── NVD toggle ── */
+    .nvd-wrap { margin-left: auto; display: flex; align-items: center; gap: 6px; }
+    .nvd-btn  { font-size: 12px; padding: 4px 9px; }
+    .nvd-btn.off { color: #94a3b8; }
+    .nvd-info {
+      display: inline-flex; align-items: center; justify-content: center;
+      width: 15px; height: 15px; border-radius: 50%;
+      background: #475569; color: #cbd5e1; font-size: 10px; font-weight: 700;
+      cursor: help; position: relative; flex-shrink: 0;
+    }
+    .nvd-info .nvd-tip {
+      display: none; position: absolute; bottom: calc(100% + 8px); right: 0;
+      background: #1e293b; color: #e2e8f0; font-size: 12px; font-weight: 400;
+      padding: 10px 13px; border-radius: 7px; width: 300px; line-height: 1.55;
+      box-shadow: 0 6px 20px rgba(0,0,0,0.4); z-index: 200; white-space: normal;
+      border: 1px solid #334155;
+    }
+    .nvd-info:hover .nvd-tip { display: block; }
+
+    /* ── Stats bar ── */
+    .stats-bar {
+      background: #fff; border-bottom: 1px solid #e2e8f0;
+      padding: 7px 20px; font-size: 12px; color: #64748b;
+      display: flex; gap: 14px; flex-wrap: wrap; align-items: center;
+    }
+
+    /* ── Missing schools banner ── */
+    .missing-banner {
+      display: none; background: #fffbeb; border-bottom: 2px solid #fcd34d;
+      padding: 8px 20px; font-size: 13px; color: #92400e;
+      align-items: center; gap: 10px;
+    }
+    .missing-banner.visible { display: flex; }
+    .missing-banner strong { font-weight: 600; }
+    .missing-list { font-size: 12px; color: #78350f; }
+    .dismiss-btn {
+      margin-left: auto; background: none; border: none;
+      font-size: 16px; color: #92400e; cursor: pointer; padding: 0 4px;
+    }
+
+    /* ── Main content ── */
+    main { padding: 14px 20px; }
+    .table-wrap { background: #fff; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); overflow: auto; }
+    table { width: 100%; border-collapse: collapse; white-space: nowrap; }
+    thead tr { background: #f8fafc; border-bottom: 2px solid #e2e8f0; }
+    th {
+      padding: 9px 12px; text-align: left; font-weight: 600; font-size: 11px;
+      text-transform: uppercase; letter-spacing: 0.06em; color: #475569;
+      cursor: pointer; user-select: none;
+    }
+    th:hover { background: #f1f5f9; color: #1e293b; }
+    th.sorted-asc::after  { content: " ▲"; font-size: 10px; }
+    th.sorted-desc::after { content: " ▼"; font-size: 10px; }
+    td { padding: 7px 12px; border-bottom: 1px solid #f1f5f9; vertical-align: middle; }
+    tr:last-child td { border-bottom: none; }
+    tr:hover td { background: #f8fafc; }
+
+    /* ── URL cell ── */
+    .url-cell { font-size: 13px; max-width: 240px; overflow: hidden; text-overflow: ellipsis; }
+    .url-link {
+      color: #2563eb; cursor: pointer; text-decoration: none;
+      border-bottom: 1px dotted #93c5fd;
+    }
+    .url-link:hover { color: #1d4ed8; border-bottom-color: #1d4ed8; }
+    .url-cell.clean .url-link { color: #16a34a; border-bottom-color: #86efac; }
+    .warn-icon { font-size: 13px; margin-left: 4px; cursor: help; }
+
+    /* ── Severity badges ── */
+    .sev-cell { display: flex; gap: 4px; align-items: center; cursor: pointer; min-width: 55px; }
+    .sev-cell:hover .badge { opacity: 0.75; }
+    .badge {
+      display: inline-flex; align-items: center; justify-content: center;
+      min-width: 22px; padding: 2px 5px; border-radius: 4px;
+      font-size: 11px; font-weight: 700;
+    }
+    .badge.critical   { background: #1e1e1e; color: #fff; }
+    .badge.high       { background: #fef2f2; color: #dc2626; border: 1px solid #fca5a5; }
+    .badge.medium     { background: #fffbeb; color: #d97706; border: 1px solid #fcd34d; }
+    .badge.suppressed { background: #f5f3ff; color: #7c3aed; border: 1px solid #ddd6fe; font-weight: 500; }
+
+    /* ── Risk score cell ── */
+    .risk-score {
+      display: inline-flex; align-items: center; justify-content: center;
+      min-width: 36px; padding: 3px 8px; border-radius: 5px;
+      font-size: 12px; font-weight: 700;
+    }
+    .risk-score.none  { background: #f0fdf4; color: #16a34a; }
+    .risk-score.low   { background: #fffbeb; color: #d97706; border: 1px solid #fcd34d; }
+    .risk-score.med   { background: #fff7ed; color: #ea580c; border: 1px solid #fdba74; }
+    .risk-score.high  { background: #fef2f2; color: #dc2626; border: 1px solid #fca5a5; }
+    .risk-score.crit  { background: #1e1e1e; color: #fff; }
+
+    /* ── Sparkline ── */
+    .sparkline-cell { padding: 5px 12px; }
+    .sparkline-cell svg { display: block; overflow: visible; }
+
+    /* ── State rows ── */
+    .state-row td { text-align: center; padding: 36px; color: #94a3b8; font-size: 13px; }
+
+    /* ── Modal base ── */
+    .modal-overlay {
+      display: none; position: fixed; inset: 0;
+      background: rgba(15,23,42,0.6); z-index: 100;
+      align-items: flex-start; justify-content: center;
+      padding: 32px 16px; overflow-y: auto;
+    }
+    .modal-overlay.open { display: flex; }
+    /* Detail modal sits above school summary when both are open */
+    #modalOverlay { z-index: 150; }
+    .modal {
+      background: #fff; border-radius: 10px; box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+      width: 100%; display: flex; flex-direction: column;
+    }
+    .modal-header {
+      display: flex; align-items: flex-start; justify-content: space-between;
+      padding: 16px 20px 12px; border-bottom: 1px solid #e2e8f0; gap: 12px; flex-shrink: 0;
+    }
+    .modal-title { font-size: 15px; font-weight: 600; color: #1e293b; }
+    .modal-subtitle { font-size: 12px; color: #64748b; margin-top: 2px; }
+    .close-btn {
+      background: none; border: none; font-size: 20px; color: #94a3b8;
+      cursor: pointer; padding: 0 4px; line-height: 1; flex-shrink: 0;
+    }
+    .close-btn:hover { color: #1e293b; }
+    .modal-body { overflow: auto; flex: 1; }
+
+    /* ── Detail table (reused in multiple modals) ── */
+    .detail-table { width: 100%; border-collapse: collapse; white-space: normal; }
+    .detail-table th {
+      background: #f8fafc; padding: 8px 12px; text-align: left; font-weight: 600;
+      font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: #475569;
+      cursor: pointer; user-select: none; border-bottom: 2px solid #e2e8f0;
+      position: sticky; top: 0; z-index: 1;
+    }
+    .detail-table th:hover { background: #f1f5f9; }
+    .detail-table td { padding: 8px 12px; border-bottom: 1px solid #f1f5f9; vertical-align: top; font-size: 13px; }
+    .detail-table tr:last-child td { border-bottom: none; }
+    .detail-table tr:hover td { background: #f8fafc; }
+    .detail-table tr.suppressed-row td { opacity: 0.4; }
+    .detail-table tr.suppressed-row:hover td { opacity: 0.65; background: #fdf4ff; }
+
+    /* ── Pills ── */
+    .sev-pill {
+      display: inline-block; padding: 2px 7px; border-radius: 999px;
+      font-size: 11px; font-weight: 700; text-transform: uppercase;
+      letter-spacing: 0.04em; white-space: nowrap;
+    }
+    .sev-pill.critical { background: #1e1e1e; color: #fff; }
+    .sev-pill.high     { background: #fef2f2; color: #dc2626; border: 1px solid #fca5a5; }
+    .sev-pill.medium   { background: #fffbeb; color: #d97706; border: 1px solid #fcd34d; }
+    .sev-pill.low      { background: #f0fdf4; color: #16a34a; border: 1px solid #86efac; }
+    .sev-pill.info     { background: #f0f9ff; color: #0284c7; border: 1px solid #bae6fd; }
+    .status-pill {
+      display: inline-block; padding: 2px 7px; border-radius: 999px;
+      font-size: 11px; font-weight: 600; text-transform: uppercase;
+    }
+    .status-pill.fail  { background: #fef2f2; color: #dc2626; }
+    .status-pill.warn  { background: #fffbeb; color: #d97706; }
+    .status-pill.pass  { background: #f0fdf4; color: #16a34a; }
+    .status-pill.info  { background: #f0f9ff; color: #0284c7; }
+    .status-pill.error { background: #fdf4ff; color: #9333ea; }
+
+    /* ── Age badge ── */
+    .age-badge {
+      display: inline-block; font-size: 11px; color: #64748b;
+      background: #f1f5f9; border-radius: 4px; padding: 1px 5px; white-space: nowrap;
+    }
+    .age-badge.old { color: #dc2626; background: #fef2f2; font-weight: 600; }
+
+    /* ── Evidence ── */
+    .evidence-toggle {
+      font-size: 11px; color: #6366f1; cursor: pointer;
+      background: none; border: none; padding: 0; margin-top: 4px; display: block;
+    }
+    .evidence-toggle:hover { text-decoration: underline; }
+    .evidence-block {
+      display: none; margin-top: 5px; background: #f8fafc; border: 1px solid #e2e8f0;
+      border-radius: 4px; padding: 7px 9px;
+      font-family: "SF Mono","Fira Code",Consolas,monospace; font-size: 11px; color: #475569;
+      white-space: pre-wrap; word-break: break-word; max-height: 160px; overflow-y: auto;
+    }
+    .evidence-block.open { display: block; }
+
+    /* ── Suppress controls ── */
+    .suppress-btn {
+      font-size: 11px; color: #94a3b8; background: none;
+      border: 1px solid #e2e8f0; border-radius: 4px; padding: 2px 6px;
+      cursor: pointer; margin-top: 4px; display: inline-block;
+    }
+    .suppress-btn:hover { color: #dc2626; border-color: #fca5a5; background: #fef2f2; }
+    .unsuppress-btn {
+      font-size: 11px; color: #7c3aed; background: none;
+      border: 1px solid #ddd6fe; border-radius: 4px; padding: 2px 6px;
+      cursor: pointer; margin-top: 4px; display: inline-block;
+    }
+    .unsuppress-btn:hover { background: #f5f3ff; }
+    .suppressed-badge {
+      display: inline-block; font-size: 11px; background: #fdf4ff; color: #9333ea;
+      border: 1px solid #e9d5ff; border-radius: 4px; padding: 1px 5px; margin-left: 4px;
+    }
+    .suppress-inline { display: none; margin-top: 5px; gap: 5px; align-items: center; }
+    .suppress-inline.open { display: flex; }
+    .suppress-inline input {
+      flex: 1; font-size: 12px; border: 1px solid #e2e8f0;
+      border-radius: 4px; padding: 3px 7px; outline: none;
+    }
+    .suppress-inline input:focus { border-color: #94a3b8; }
+    .suppress-confirm {
+      font-size: 12px; background: #dc2626; color: #fff;
+      border: none; border-radius: 4px; padding: 3px 9px; cursor: pointer;
+    }
+    .suppress-confirm:hover { background: #b91c1c; }
+    .suppress-cancel {
+      font-size: 12px; background: none; border: 1px solid #e2e8f0;
+      border-radius: 4px; padding: 3px 7px; cursor: pointer; color: #64748b;
+    }
+
+    /* ── Tabs ── */
+    .tabs { display: flex; border-bottom: 2px solid #e2e8f0; padding: 0 20px; background: #f8fafc; }
+    .tab-btn {
+      padding: 10px 16px; font-size: 13px; font-weight: 500; color: #64748b;
+      background: none; border: none; cursor: pointer; border-bottom: 2px solid transparent;
+      margin-bottom: -2px;
+    }
+    .tab-btn:hover { color: #1e293b; }
+    .tab-btn.active { color: #2563eb; border-bottom-color: #2563eb; }
+    .tab-panel { display: none; }
+    .tab-panel.active { display: block; }
+
+    /* ── School summary card ── */
+    .school-meta {
+      display: flex; align-items: center; gap: 16px; padding: 14px 20px;
+      border-bottom: 1px solid #e2e8f0; flex-wrap: wrap;
+    }
+    .school-risk-score {
+      font-size: 22px; font-weight: 800; line-height: 1;
+    }
+    .school-risk-score.none  { color: #16a34a; }
+    .school-risk-score.low   { color: #d97706; }
+    .school-risk-score.med   { color: #ea580c; }
+    .school-risk-score.high  { color: #dc2626; }
+    .school-risk-score.crit  { color: #111; }
+    .school-risk-label { font-size: 11px; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.05em; }
+    .coverage-pill {
+      font-size: 12px; padding: 3px 9px; border-radius: 999px; font-weight: 500;
+    }
+    .coverage-pill.ok   { background: #f0fdf4; color: #16a34a; border: 1px solid #86efac; }
+    .coverage-pill.warn { background: #fffbeb; color: #d97706; border: 1px solid #fcd34d; }
+    .school-cat-grid {
+      display: grid; grid-template-columns: repeat(6, 1fr);
+      gap: 10px; padding: 14px 20px; border-bottom: 1px solid #e2e8f0;
+    }
+    .cat-card {
+      background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 7px;
+      padding: 10px 12px; cursor: pointer; transition: background 0.12s;
+    }
+    .cat-card:hover { background: #f1f5f9; border-color: #94a3b8; }
+    .cat-card-label { font-size: 11px; font-weight: 600; text-transform: uppercase;
+      letter-spacing: 0.05em; color: #475569; margin-bottom: 6px; }
+    .cat-card-counts { display: flex; gap: 4px; flex-wrap: wrap; }
+    .school-trend { padding: 14px 20px; border-bottom: 1px solid #e2e8f0; }
+    .school-trend-title { font-size: 12px; font-weight: 600; color: #475569;
+      text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 8px; }
+    .trend-chart-wrap { overflow-x: auto; }
+
+    /* ── Page nav ── */
+    .page-nav {
+      background: #1e293b; border-top: 1px solid #334155;
+      padding: 0 20px; display: flex;
+    }
+    .page-nav-btn {
+      color: #94a3b8; background: none; border: none;
+      border-bottom: 2px solid transparent;
+      padding: 8px 16px; font-size: 13px; font-weight: 500;
+      cursor: pointer; white-space: nowrap;
+    }
+    .page-nav-btn:hover { color: #f8fafc; }
+    .page-nav-btn.active { color: #f8fafc; border-bottom-color: #3b82f6; }
+
+    /* ── Domain expiry row colours ── */
+    .de-row-expired td  { background: #18181b !important; color: #f4f4f5 !important; }
+    .de-row-expired:hover td { background: #27272a !important; }
+    .de-row-expired .sev-pill { border-color: #52525b; }
+    .de-row-urgent  td  { background: #fef2f2; }
+    .de-row-urgent:hover  td { background: #fee2e2 !important; }
+    .de-row-warning td  { background: #fffbeb; }
+    .de-row-warning:hover td { background: #fef3c7 !important; }
+    .de-row-ok      td  { background: #f0fdf4; }
+    .de-row-ok:hover      td { background: #dcfce7 !important; }
+
+    /* ── Pagination ── */
+    .pagination {
+      display: flex; align-items: center; gap: 10px; padding: 10px 16px;
+      border-top: 1px solid #f1f5f9; background: #fff; font-size: 13px; color: #64748b;
+    }
+    .pagination .btn { padding: 4px 10px; font-size: 12px; }
+    .pagination .btn:disabled { opacity: 0.35; cursor: default; }
+    .page-info { flex: 1; text-align: center; }
+
+    /* ── Worst offenders ── */
+    .wo-school-rank {
+      display: inline-flex; align-items: center; justify-content: center;
+      width: 24px; height: 24px; border-radius: 50%; font-size: 12px; font-weight: 700;
+      background: #f1f5f9; color: #64748b;
+    }
+    .wo-school-rank.top3 { background: #1e1e1e; color: #fff; }
+  </style>
+</head>
+<body>
+
+<header>
+  <h1>School Cyber Exposure</h1>
+  <div class="controls">
+    <select id="runSelect"></select>
+    <input id="searchInput" type="text" placeholder="Search schools…" autocomplete="off">
+    <div id="overviewControls" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+      <select id="severityFilter">
+        <option value="all">All schools</option>
+        <option value="medium">Has adverse findings (medium+)</option>
+        <option value="high">Has high or critical</option>
+        <option value="critical">Has critical findings</option>
+      </select>
+      <button class="btn" id="exportBtn">⬇ Export CSV</button>
+      <button class="btn" id="suppressionsBtn">⊘ Suppressions</button>
+    </div>
+  </div>
+</header>
+
+<nav class="page-nav">
+  <button class="page-nav-btn active" id="navOverview">Overview</button>
+  <button class="page-nav-btn" id="navDomainExpiry">Domain Expiry</button>
+  <button class="page-nav-btn" id="navAnalysis">Analysis</button>
+  <div class="nvd-wrap">
+    <button class="btn nvd-btn" id="nvdToggleBtn"></button>
+    <span class="nvd-info">?
+      <span class="nvd-tip">CVE findings are sourced from the NVD (National Vulnerability Database) via CPE matching. NVD data quality is inconsistent — findings may not apply to the actual OS, deployment mode, or exact version in use. When off, CVE findings are excluded from risk scores and all views. This setting is saved across sessions.</span>
+    </span>
+  </div>
+</nav>
+
+<div class="stats-bar" id="statsBar">Loading…</div>
+
+<div class="missing-banner" id="missingBanner">
+  <span>⚠ <strong id="missingCount"></strong> school(s) present in the previous run are missing from this run:</span>
+  <span class="missing-list" id="missingList"></span>
+  <button class="dismiss-btn" id="dismissMissing">✕</button>
+</div>
+
+<main>
+  <div class="table-wrap">
+    <div class="pagination">
+      <button class="btn" id="prevPage" disabled>← Prev</button>
+      <span class="page-info" id="pageInfo">—</span>
+      <button class="btn" id="nextPage" disabled>Next →</button>
+    </div>
+    <table id="mainTable">
+      <thead>
+        <tr>
+          <th data-col="url">School</th>
+          <th data-col="risk" class="sorted-desc" style="min-width:70px">Risk</th>
+          <th data-col="web">Web</th>
+          <th data-col="tls">TLS / Certs</th>
+          <th data-col="dns">DNS</th>
+          <th data-col="email">Email</th>
+          <th data-col="infrastructure">Infrastructure</th>
+          <th data-col="domain_expiry">Domain</th>
+          <th data-col="reputation">Reputation</th>
+          <th data-col="trend" style="min-width:100px">Trend</th>
+        </tr>
+      </thead>
+      <tbody id="tableBody">
+        <tr class="state-row"><td colspan="9">Select a run to load data.</td></tr>
+      </tbody>
+    </table>
+  </div>
+</main>
+
+<!-- ── Domain expiry view ── -->
+<section id="domainExpiryView" style="display:none; padding:14px 20px">
+  <div class="table-wrap">
+    <div class="pagination">
+      <button class="btn" id="dePrevPage" disabled>← Prev</button>
+      <span class="page-info" id="dePageInfo">—</span>
+      <button class="btn" id="deNextPage" disabled>Next →</button>
+    </div>
+    <table id="deTable">
+      <thead>
+        <tr>
+          <th data-decol="url">School</th>
+          <th data-decol="expiry_date" style="width:115px">Expiry Date</th>
+          <th data-decol="days_until_expiry" class="sorted-asc" style="width:80px">Days</th>
+          <th data-decol="registrar">Registrar</th>
+          <th data-decol="severity" style="width:90px">Status</th>
+        </tr>
+      </thead>
+      <tbody id="deBody">
+        <tr class="state-row"><td colspan="5">Select a run to load data.</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<!-- ── Detail modal ── -->
+<div class="modal-overlay" id="modalOverlay">
+  <div class="modal" style="max-width:1000px">
+    <div class="modal-header">
+      <div>
+        <div class="modal-title" id="modalTitle"></div>
+        <div class="modal-subtitle" id="modalSubtitle"></div>
+      </div>
+      <button class="close-btn" id="closeModal">✕</button>
+    </div>
+    <div class="modal-body" style="max-height:70vh">
+      <table class="detail-table" id="detailTable">
+        <thead>
+          <tr>
+            <th data-dcol="severity" class="sorted-asc" style="width:85px">Severity</th>
+            <th data-dcol="check_name">Check</th>
+            <th data-dcol="status" style="width:75px">Status</th>
+            <th data-dcol="age_days" style="width:65px">Age</th>
+            <th data-dcol="detail">Detail / Evidence</th>
+          </tr>
+        </thead>
+        <tbody id="detailBody">
+          <tr class="state-row"><td colspan="5">Loading…</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- ── School summary modal ── -->
+<div class="modal-overlay" id="schoolOverlay">
+  <div class="modal" style="max-width:1000px">
+    <div class="modal-header">
+      <div>
+        <div class="modal-title" id="schoolTitle"></div>
+        <div class="modal-subtitle">School summary</div>
+      </div>
+      <button class="close-btn" id="closeSchoolModal">✕</button>
+    </div>
+    <div id="schoolMeta" class="school-meta"></div>
+    <div id="schoolCatGrid" class="school-cat-grid"></div>
+    <div class="school-trend">
+      <div class="school-trend-title">Adverse findings trend</div>
+      <div class="trend-chart-wrap" id="schoolTrendChart"></div>
+    </div>
+    <div class="modal-body" style="max-height:40vh">
+      <table class="detail-table" id="schoolFindingsTable">
+        <thead>
+          <tr>
+            <th data-scol="severity" class="sorted-asc" style="width:85px">Severity</th>
+            <th data-scol="check_category" style="width:110px">Category</th>
+            <th data-scol="check_name">Check</th>
+            <th data-scol="status" style="width:75px">Status</th>
+            <th data-scol="age_days" style="width:65px">Age</th>
+            <th data-scol="detail">Detail</th>
+          </tr>
+        </thead>
+        <tbody id="schoolFindingsBody">
+          <tr class="state-row"><td colspan="6">Loading…</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- ── Worst offenders modal ── -->
+<div class="modal-overlay" id="woOverlay">
+  <div class="modal" style="max-width:1000px">
+    <div class="modal-header">
+      <div><div class="modal-title">Analysis</div></div>
+      <button class="btn" id="woExportBtn" style="margin-right:8px">⬇ Export CSV</button>
+      <button class="close-btn" id="closeWoModal">✕</button>
+    </div>
+    <div class="tabs">
+      <button class="tab-btn active" data-tab="findings">Worst Findings</button>
+      <button class="tab-btn" data-tab="schools">Worst Schools</button>
+      <button class="tab-btn" data-tab="best">Best Schools</button>
+      <button class="tab-btn" data-tab="prevalent">Most Prevalent Issues</button>
+    </div>
+    <div class="modal-body" style="max-height:65vh">
+      <div id="tab-findings" class="tab-panel active">
+        <table class="detail-table" id="woFindingsTable">
+          <thead>
+            <tr>
+              <th data-wfcol="severity" class="sorted-asc" style="width:85px">Severity</th>
+              <th data-wfcol="age_days" style="width:55px">Age</th>
+              <th data-wfcol="url">School</th>
+              <th data-wfcol="check_category" style="width:100px">Category</th>
+              <th data-wfcol="check_name">Check / Detail</th>
+            </tr>
+          </thead>
+          <tbody id="woFindingsBody">
+            <tr class="state-row"><td colspan="5">Loading…</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div id="tab-schools" class="tab-panel">
+        <table class="detail-table" id="woSchoolsTable">
+          <thead>
+            <tr>
+              <th style="width:40px">#</th>
+              <th>School</th>
+              <th style="width:110px">Risk</th>
+              <th style="width:65px">Critical</th>
+              <th style="width:55px">High</th>
+              <th style="width:65px">Medium</th>
+            </tr>
+          </thead>
+          <tbody id="woSchoolsBody">
+            <tr class="state-row"><td colspan="6">Loading…</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div id="tab-best" class="tab-panel">
+        <table class="detail-table" id="woBestTable">
+          <thead>
+            <tr>
+              <th style="width:40px">#</th>
+              <th>School</th>
+              <th style="width:110px">Risk</th>
+              <th style="width:65px">Critical</th>
+              <th style="width:55px">High</th>
+              <th style="width:65px">Medium</th>
+            </tr>
+          </thead>
+          <tbody id="woBestBody">
+            <tr class="state-row"><td colspan="6">Loading…</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div id="tab-prevalent" class="tab-panel">
+        <table class="detail-table" id="woPrevalentTable">
+          <thead>
+            <tr>
+              <th data-wpcol="severity" style="width:85px">Severity</th>
+              <th data-wpcol="check_category" style="width:105px">Category</th>
+              <th data-wpcol="check_name">Issue</th>
+              <th data-wpcol="school_count" class="sorted-desc" style="width:110px">Schools Affected</th>
+              <th data-wpcol="pct_schools" style="width:80px">% of Total</th>
+            </tr>
+          </thead>
+          <tbody id="woPrevalentBody">
+            <tr class="state-row"><td colspan="5">Loading…</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ── Suppressions modal ── -->
+<div class="modal-overlay" id="suppressionsOverlay">
+  <div class="modal" style="max-width:700px">
+    <div class="modal-header">
+      <div>
+        <div class="modal-title">Active Suppressions</div>
+        <div class="modal-subtitle" id="suppressionsSubtitle"></div>
+      </div>
+      <button class="close-btn" id="closeSuppressionsModal">✕</button>
+    </div>
+    <div class="modal-body" style="max-height:65vh">
+      <table class="detail-table" id="suppressionsTable">
+        <thead>
+          <tr>
+            <th style="width:35%">School</th>
+            <th style="width:25%">Check</th>
+            <th>Reason</th>
+            <th style="width:75px">Date</th>
+            <th style="width:60px"></th>
+          </tr>
+        </thead>
+        <tbody id="suppressionsBody">
+          <tr class="state-row"><td colspan="5">Loading…</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<script>
+// ─── Constants ───────────────────────────────────────────────────────────────
+const GROUPS = ["web","tls","dns","email","infrastructure","domain_expiry","reputation"];
+
+// ─── NVD toggle ───────────────────────────────────────────────────────────────
+let nvdEnabled = JSON.parse(localStorage.getItem("nvdEnabled") ?? "true");
+
+function updateNvdBtn() {
+  const btn = document.getElementById("nvdToggleBtn");
+  btn.textContent = nvdEnabled ? "CVE Findings: On" : "CVE Findings: Off";
+  btn.classList.toggle("off", !nvdEnabled);
+}
+updateNvdBtn();
+
+document.getElementById("nvdToggleBtn").addEventListener("click", () => {
+  nvdEnabled = !nvdEnabled;
+  localStorage.setItem("nvdEnabled", JSON.stringify(nvdEnabled));
+  updateNvdBtn();
+  if (currentRunkey) {
+    tableOffset  = 0;
+    deLoaded     = false;
+    schoolScores = [];
+    loadTablePage();
+  }
+});
+const GROUP_LABELS = { web:"Web", tls:"TLS / Certs", dns:"DNS", email:"Email", infrastructure:"Infrastructure", domain_expiry:"Domain", reputation:"Reputation" };
+const SEV_ORDER = { critical:0, high:1, medium:2, low:3, info:4 };
+const PAGE_SIZE  = 100;
+
+// ─── State ───────────────────────────────────────────────────────────────────
+let allRows      = [];       // current table page
+let tableTotal   = 0;        // total matching schools (server)
+let tableStats   = {};       // {total_c,total_h,total_m,clean,coverage_warnings}
+let tableOffset  = 0;
+let trendData    = {};       // loaded per-page, merged
+let currentView  = "overview";
+let schoolScores = [];       // lightweight all-school scores for WO modal
+
+// Domain expiry page state
+let deRows   = [];
+let deTotal  = 0;
+let deOffset = 0;
+let deLoaded = false;        // lazy — only fetch when tab first visited
+let sortCol = "risk";
+let sortDir = "desc";
+let detailSortCol = "severity";
+let detailSortDir = "asc";
+let schoolSortCol = "severity";
+let schoolSortDir = "asc";
+let currentRunkey = null;
+let detailFindings = [];
+let detailContext = null;
+let schoolFindings = [];
+
+// ─── Utility ─────────────────────────────────────────────────────────────────
+function debounce(fn, ms) {
+  let t; return (...args) => { clearTimeout(t); t = setTimeout(() => fn(...args), ms); };
+}
+
+// ─── Init ────────────────────────────────────────────────────────────────────
+async function init() {
+  let runs;
+  try { runs = await apiFetch("/api/runs"); }
+  catch (e) {
+    document.getElementById("statsBar").textContent = "Failed to load runs — is the server running?";
+    return;
+  }
+  const sel = document.getElementById("runSelect");
+  if (!runs.length) { sel.innerHTML = '<option>No runs found</option>'; return; }
+  runs.forEach((run, i) => {
+    const date = run.started_at.replace("T"," ").slice(0,16);
+    const opt  = document.createElement("option");
+    opt.value  = run.runkey;
+    opt.textContent = `${date}  ·  ${run.total_targets ?? "?"} schools  ·  ${run.total_findings ?? "?"} findings`;
+    if (i === 0) opt.selected = true;
+    sel.appendChild(opt);
+  });
+  await loadRun(runs[0].runkey);
+}
+
+async function loadRun(runkey) {
+  currentRunkey = runkey;
+  tableOffset   = 0;
+  deOffset      = 0;
+  deLoaded      = false;
+  trendData     = {};
+  document.getElementById("missingBanner").classList.remove("visible");
+  if (currentView === "overview") {
+    await loadTablePage();
+    loadMissingBanner();
+  } else {
+    await loadDomainExpiryPage();
+  }
+}
+
+// ─── Table page load (paginated, server-side filter+sort) ─────────────────────
+async function loadTablePage() {
+  document.getElementById("statsBar").textContent = "Loading…";
+  document.getElementById("tableBody").innerHTML =
+    `<tr class="state-row"><td colspan="9">Loading…</td></tr>`;
+  try {
+    const params = new URLSearchParams({
+      runkey:   currentRunkey,
+      search:   document.getElementById("searchInput").value.trim(),
+      sev:      document.getElementById("severityFilter").value,
+      sort_col: sortCol,
+      sort_dir: sortDir,
+      offset:   tableOffset,
+      limit:    PAGE_SIZE,
+    });
+    if (!nvdEnabled) params.set("hide_nvd", "1");
+    const data = await apiFetch(`/api/table?${params}`);
+    allRows    = data.rows    || [];
+    tableTotal = data.total   || 0;
+    tableStats = data.stats   || {};
+    renderTable();
+    updateStatsBar();
+    updateTablePagination();
+    // Load trends for visible URLs (non-blocking)
+    if (allRows.length) loadTrendsForPage();
+  } catch (e) {
+    document.getElementById("tableBody").innerHTML =
+      `<tr class="state-row"><td colspan="9">Error loading data: ${escHtml(String(e))}</td></tr>`;
+    document.getElementById("statsBar").textContent = "Error";
+  }
+}
+
+async function loadMissingBanner() {
+  try {
+    const missing = await apiFetch(`/api/missing?runkey=${enc(currentRunkey)}`);
+    if (missing.length) {
+      document.getElementById("missingCount").textContent = missing.length;
+      document.getElementById("missingList").textContent =
+        missing.map(u => u.replace(/^https?:\/\//,"")).join(", ");
+      document.getElementById("missingBanner").classList.add("visible");
+    }
+  } catch (_) {} // non-critical
+}
+
+async function loadTrendsForPage() {
+  try {
+    const urlParam = allRows.map(r => r.url).join(",");
+    const t = await apiFetch(`/api/trends?urls=${enc(urlParam)}`);
+    Object.assign(trendData, t.data || {});
+    // Update just the sparkline cells without re-rendering full table
+    document.querySelectorAll(".sparkline-cell[data-url]").forEach(cell => {
+      cell.innerHTML = renderSparkline(cell.dataset.url);
+    });
+  } catch (_) {} // sparklines are non-critical
+}
+
+function updateStatsBar() {
+  const s = tableStats;
+  const cov = s.coverage_warnings
+    ? ` &nbsp;·&nbsp; <span style="color:#d97706;font-weight:600">${s.coverage_warnings} coverage warning${s.coverage_warnings!==1?"s":""}</span>` : "";
+  document.getElementById("statsBar").innerHTML =
+    `<span style="font-weight:600">${tableTotal}</span> schools &nbsp;·&nbsp; `
+    + `<span style="font-weight:700;color:#111">${s.total_c??0}</span> critical &nbsp;`
+    + `<span style="font-weight:700;color:#dc2626">${s.total_h??0}</span> high &nbsp;`
+    + `<span style="font-weight:700;color:#d97706">${s.total_m??0}</span> medium &nbsp;·&nbsp;`
+    + `<span style="color:#16a34a;font-weight:600">${s.clean??0}</span> clean`
+    + cov;
+}
+
+function updateTablePagination() {
+  const start = tableTotal ? tableOffset + 1 : 0;
+  const end   = Math.min(tableOffset + PAGE_SIZE, tableTotal);
+  document.getElementById("pageInfo").textContent =
+    tableTotal ? `${start}–${end} of ${tableTotal}` : "No results";
+  document.getElementById("prevPage").disabled = tableOffset === 0;
+  document.getElementById("nextPage").disabled = end >= tableTotal;
+}
+
+// ─── Render main table ───────────────────────────────────────────────────────
+function renderTable() {
+  const tbody = document.getElementById("tableBody");
+  if (!allRows.length) {
+    tbody.innerHTML = '<tr class="state-row"><td colspan="9">No schools match the current filters.</td></tr>';
+    return;
+  }
+  tbody.innerHTML = allRows.map(row => renderRow(row)).join("");
+  tbody.querySelectorAll(".sev-cell[data-url]").forEach(cell => {
+    cell.addEventListener("click", () => openDetail(cell.dataset.url, cell.dataset.group));
+  });
+  tbody.querySelectorAll(".url-link[data-url]").forEach(link => {
+    link.addEventListener("click", () => openSchoolSummary(link.dataset.url));
+  });
+}
+
+function renderRow(row) {
+  const {c, h, m} = rowCHM(row);
+  const isClean    = c === 0 && h === 0 && m === 0;
+  const hasWarn    = row.coverage_warning;
+  const warnIcon   = hasWarn
+    ? `<span class="warn-icon" title="Scan coverage may be incomplete for this school">⚠️</span>`
+    : "";
+  const urlDisplay = row.url.replace(/^https?:\/\//,"");
+
+  const urlCell = `<td class="url-cell${isClean ? " clean" : ""}">
+    <span class="url-link" data-url="${esc(row.url)}">${isClean ? "✓ " : ""}${escHtml(urlDisplay)}</span>${warnIcon}
+  </td>`;
+
+  const scoreCell = `<td>${riskBadge(c, h, m)}</td>`;
+
+  const catCells = GROUPS.map(group => {
+    const c = row.categories[group];
+    const hasActive = c.critical || c.high || c.medium;
+    const hasSup    = c.suppressed > 0;
+    if (!hasActive && !hasSup) return "<td></td>";
+    const badges = [
+      c.critical   ? `<span class="badge critical">${c.critical}</span>` : "",
+      c.high       ? `<span class="badge high">${c.high}</span>` : "",
+      c.medium     ? `<span class="badge medium">${c.medium}</span>` : "",
+      hasSup       ? `<span class="badge suppressed" title="${c.suppressed} suppressed">⊘${c.suppressed}</span>` : "",
+    ].filter(Boolean).join("");
+    return `<td><div class="sev-cell" data-url="${esc(row.url)}" data-group="${group}">${badges}</div></td>`;
+  }).join("");
+
+  const sparkCell = `<td class="sparkline-cell" data-url="${esc(row.url)}">${renderSparkline(row.url)}</td>`;
+
+  return `<tr>${urlCell}${scoreCell}${catCells}${sparkCell}</tr>`;
+}
+
+// ─── Risk score helpers ───────────────────────────────────────────────────────
+// this needs to remain in sync with the risk score scoring in the python calc
+// Tier-based formula with diminishing returns (exponential decay).
+// Key anchors: 1H=50, ~10H≈1C=75, ceiling≈100. Clean=0.
+// Colour class is derived from worst severity present, not from the score value.
+
+function rowCHM(row) {
+  let c=0, h=0, m=0;
+  GROUPS.forEach(g => {
+    const cat = row.categories?.[g];
+    if (!cat) return;
+    c += cat.critical || 0;
+    h += cat.high     || 0;
+    m += cat.medium   || 0;
+  });
+  return {c, h, m};
+}
+
+function riskScore(c, h, m) {
+  if (c > 0) {
+    return Math.round(Math.min(
+      65 + 25*(1-Math.pow(0.6,c))
+         + Math.min(10*(1-Math.pow(0.6,h)), 10)
+         + Math.min(3*(1-Math.pow(0.9,m)), 3),
+      100));
+  }
+  if (h > 0) {
+    return Math.round(Math.min(
+      33 + 42*(1-Math.pow(0.6,h))
+         + Math.min(3*(1-Math.pow(0.9,m)), 3),
+      100));
+  }
+  if (m > 0) {
+    return Math.round(Math.min(5 + 10*(1-Math.pow(0.8,m)), 100));
+  }
+  return 0;
+}
+
+function riskClass(c, h, m) {
+  if (c > 0) return "crit";
+  if (h > 0) return "high";
+  if (m > 0) return "med";
+  return "none";
+}
+
+function riskBadge(c, h, m) {
+  const score = riskScore(c, h, m);
+  const cls   = riskClass(c, h, m);
+  if (cls === "none") return `<span class="risk-score none">✓ Clean</span>`;
+  return `<span class="risk-score ${cls}">${score}</span>`;
+}
+
+// ─── Sparkline ───────────────────────────────────────────────────────────────
+function renderSparkline(url) {
+  const series = trendData[url];
+  if (!series || series.length < 2) {
+    if (series && series.length === 1)
+      return `<span style="font-size:11px;color:#94a3b8">${series[0]}</span>`;
+    return `<span style="font-size:11px;color:#cbd5e1">–</span>`;
+  }
+  const W=88, H=20, P=2, n=series.length;
+  const max = Math.max(...series, 1);
+  const x = i => P + (i/(n-1))*(W-P*2);
+  const y = v => H-P-((v/max)*(H-P*2));
+  const pts   = series.map((v,i)=>`${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(" ");
+  const fill  = `${x(0).toFixed(1)},${H} ${pts} ${x(n-1).toFixed(1)},${H}`;
+  const first = series[0], last = series[series.length-1];
+  const color = last < first ? "#16a34a" : last > first ? "#dc2626" : "#94a3b8";
+  return `<svg width="${W}" height="${H}" xmlns="http://www.w3.org/2000/svg">
+    <polygon points="${fill}" fill="${color}" opacity="0.08"/>
+    <polyline points="${pts}" fill="none" stroke="${color}" stroke-width="1.5"
+      stroke-linejoin="round" stroke-linecap="round"/>
+    <circle cx="${x(n-1).toFixed(1)}" cy="${y(last).toFixed(1)}" r="2.5" fill="${color}"/>
+    <title>${series.join(" → ")}</title>
+  </svg>`;
+}
+
+// ─── Main table sort ──────────────────────────────────────────────────────────
+function trendDelta(url) {
+  const s = trendData[url];
+  return (!s || s.length<2) ? 0 : s[s.length-1]-s[0];
+}
+
+document.getElementById("mainTable").querySelector("thead").addEventListener("click", e => {
+  const th = e.target.closest("th[data-col]");
+  if (!th) return;
+  const col = th.dataset.col;
+  sortDir = col===sortCol ? (sortDir==="asc"?"desc":"asc") : (col==="url"?"asc":"desc");
+  sortCol = col;
+  updateSortHeaders("#mainTable","col",sortCol,sortDir);
+  tableOffset = 0;
+  loadTablePage();
+});
+
+// ─── Filters ─────────────────────────────────────────────────────────────────
+const debouncedTableLoad = debounce(() => {
+  if (currentView === "domain_expiry") {
+    deOffset = 0; loadDomainExpiryPage();
+  } else {
+    tableOffset = 0; loadTablePage();
+  }
+}, 300);
+document.getElementById("runSelect").addEventListener("change", e => loadRun(e.target.value));
+document.getElementById("searchInput").addEventListener("input", debouncedTableLoad);
+document.getElementById("severityFilter").addEventListener("change", () => { tableOffset = 0; loadTablePage(); });
+document.getElementById("dismissMissing").addEventListener("click", () => {
+  document.getElementById("missingBanner").classList.remove("visible");
+});
+
+// ─── Main table pagination ────────────────────────────────────────────────────
+document.getElementById("prevPage").addEventListener("click", () => {
+  if (tableOffset === 0) return;
+  tableOffset = Math.max(0, tableOffset - PAGE_SIZE);
+  loadTablePage();
+});
+document.getElementById("nextPage").addEventListener("click", () => {
+  if (tableOffset + PAGE_SIZE >= tableTotal) return;
+  tableOffset += PAGE_SIZE;
+  loadTablePage();
+});
+
+// ─── Export ──────────────────────────────────────────────────────────────────
+document.getElementById("exportBtn").addEventListener("click", () => {
+  if (currentRunkey) window.location.href = `/api/export?runkey=${enc(currentRunkey)}`;
+});
+
+// ─── Page navigation ──────────────────────────────────────────────────────────
+document.getElementById("navOverview").addEventListener("click", () => switchView("overview"));
+document.getElementById("navDomainExpiry").addEventListener("click", () => switchView("domain_expiry"));
+
+function switchView(view) {
+  currentView = view;
+  const isOverview = view === "overview";
+  document.querySelector("main").style.display              = isOverview ? "" : "none";
+  document.getElementById("domainExpiryView").style.display = isOverview ? "none" : "";
+  document.getElementById("overviewControls").style.display = isOverview ? "flex" : "none";
+  document.getElementById("navOverview").classList.toggle("active", isOverview);
+  document.getElementById("navDomainExpiry").classList.toggle("active", !isOverview);
+  if (!isOverview && !deLoaded && currentRunkey) loadDomainExpiryPage();
+}
+
+// ─── Domain expiry view ───────────────────────────────────────────────────────
+let deSortCol = "days_until_expiry";
+let deSortDir = "asc";
+
+async function loadDomainExpiryPage() {
+  const tbody = document.getElementById("deBody");
+  tbody.innerHTML = '<tr class="state-row"><td colspan="5">Loading…</td></tr>';
+  try {
+    const params = new URLSearchParams({
+      runkey:   currentRunkey,
+      search:   document.getElementById("searchInput").value.trim(),
+      sort_col: deSortCol,
+      sort_dir: deSortDir,
+      offset:   deOffset,
+      limit:    PAGE_SIZE,
+    });
+    const data = await apiFetch(`/api/domain-expiry?${params}`);
+    deRows  = data.rows  || [];
+    deTotal = data.total || 0;
+    deLoaded = true;
+    renderDomainExpiry();
+    updateDePagination();
+  } catch (e) {
+    tbody.innerHTML = `<tr class="state-row"><td colspan="5">Error loading data: ${escHtml(String(e))}</td></tr>`;
+  }
+}
+
+function updateDePagination() {
+  const start = deTotal ? deOffset + 1 : 0;
+  const end   = Math.min(deOffset + PAGE_SIZE, deTotal);
+  document.getElementById("dePageInfo").textContent =
+    deTotal ? `${start}–${end} of ${deTotal}` : "No results";
+  document.getElementById("dePrevPage").disabled = deOffset === 0;
+  document.getElementById("deNextPage").disabled = end >= deTotal;
+}
+
+function renderDomainExpiry() {
+  const tbody = document.getElementById("deBody");
+  if (!deRows.length) {
+    tbody.innerHTML = '<tr class="state-row"><td colspan="5">No domain expiry data for this run.</td></tr>';
+    return;
+  }
+  tbody.innerHTML = deRows.map(r => {
+    const days    = r.days_until_expiry;
+    const rowCls  = days === null ? "" :
+                    days <= 0    ? "de-row-expired" :
+                    days <= 14   ? "de-row-urgent"  :
+                    days <= 60   ? "de-row-warning" : "de-row-ok";
+    const urlDisp = r.url.replace(/^https?:\/\//,"");
+    const urlCell = `<td style="font-size:13px;max-width:240px;overflow:hidden;text-overflow:ellipsis" title="${esc(r.url)}">${escHtml(urlDisp)}</td>`;
+    const sevCell = `<td><span class="sev-pill ${r.severity}">${r.severity}</span></td>`;
+
+    if (r.expiry_date === null || r.expiry_date === undefined) {
+      return `<tr class="${rowCls}">
+        ${urlCell}
+        <td colspan="3" style="font-size:12px;color:#64748b;font-style:italic">${escHtml(r.detail || 'No expiry data available')}</td>
+        ${sevCell}
+      </tr>`;
+    }
+
+    const daysCell = days <= 0
+      ? `<span style="font-weight:700;color:#fca5a5">${Math.abs(days)}d ago</span>`
+      : `<span style="font-weight:700">${days}d</span>`;
+    const registrar = r.registrar ? escHtml(r.registrar) : '<span style="color:#94a3b8">—</span>';
+    return `<tr class="${rowCls}">
+      ${urlCell}
+      <td style="font-size:13px;font-family:monospace">${escHtml(r.expiry_date)}</td>
+      <td style="text-align:right">${daysCell}</td>
+      <td style="font-size:12px;color:inherit">${registrar}</td>
+      ${sevCell}
+    </tr>`;
+  }).join("");
+}
+
+document.getElementById("deTable").querySelector("thead").addEventListener("click", e => {
+  const th = e.target.closest("th[data-decol]"); if (!th) return;
+  const col = th.dataset.decol;
+  deSortDir = col === deSortCol ? (deSortDir === "asc" ? "desc" : "asc") : "asc";
+  deSortCol = col;
+  updateSortHeaders("#deTable","decol",deSortCol,deSortDir);
+  deOffset = 0;
+  loadDomainExpiryPage();
+});
+
+// ─── Domain expiry pagination ─────────────────────────────────────────────────
+document.getElementById("dePrevPage").addEventListener("click", () => {
+  if (deOffset === 0) return;
+  deOffset = Math.max(0, deOffset - PAGE_SIZE);
+  loadDomainExpiryPage();
+});
+document.getElementById("deNextPage").addEventListener("click", () => {
+  if (deOffset + PAGE_SIZE >= deTotal) return;
+  deOffset += PAGE_SIZE;
+  loadDomainExpiryPage();
+});
+
+// ─── Detail modal ─────────────────────────────────────────────────────────────
+async function openDetail(url, category) {
+  detailContext = { url, category };
+  document.getElementById("modalTitle").textContent    = url.replace(/^https?:\/\//,"");
+  document.getElementById("modalSubtitle").textContent = GROUP_LABELS[category];
+  document.getElementById("detailBody").innerHTML =
+    '<tr class="state-row"><td colspan="5">Loading…</td></tr>';
+  document.getElementById("modalOverlay").classList.add("open");
+  detailSortCol = "severity"; detailSortDir = "asc";
+  updateSortHeaders("#detailTable", "dcol", detailSortCol, detailSortDir);
+  const params = new URLSearchParams({ runkey:currentRunkey, url, category });
+  detailFindings = await apiFetch(`/api/detail?${params}`);
+  renderDetailTable();
+}
+
+function renderDetailTable() {
+  const base   = nvdEnabled ? detailFindings : detailFindings.filter(f => f.check_name !== "component_vulnerable_version");
+  const sorted = base.slice().sort(makeDetailComp(detailSortCol, detailSortDir));
+  const tbody  = document.getElementById("detailBody");
+  if (!sorted.length) {
+    tbody.innerHTML = '<tr class="state-row"><td colspan="5">No findings.</td></tr>';
+    return;
+  }
+  tbody.innerHTML = sorted.map((f,i) => detailRow(f, i, detailContext?.url)).join("");
+  attachDetailHandlers(tbody, detailFindings, () => renderDetailTable(), () => loadTablePage());
+}
+
+function detailRow(f, i, url) {
+  const evJson = f.evidence && Object.keys(f.evidence).length
+    ? JSON.stringify(f.evidence, null, 2) : null;
+  const evSection = evJson
+    ? `<button class="evidence-toggle" data-idx="${i}">▶ Evidence</button>
+       <pre class="evidence-block" id="ev-${i}">${escHtml(evJson)}</pre>` : "";
+
+  let ageTd = "<td>–</td>";
+  if (f.age_days !== null && f.age_days !== undefined) {
+    ageTd = `<td><span class="age-badge${f.age_days>=30?" old":""}" title="First seen ${f.first_seen}">${f.age_days}d</span></td>`;
+  }
+
+  let supSection = "";
+  if (f.suppressed) {
+    supSection = `<div style="margin-top:4px">
+      <span class="suppressed-badge">Suppressed</span>
+      <span style="font-size:11px;color:#94a3b8;margin-left:4px">${escHtml(f.suppression_reason||"")}${f.suppression_date?" ("+f.suppression_date+")":""}</span>
+    </div>
+    <button class="unsuppress-btn" data-sup-id="${f.suppression_id}" data-idx="${i}">↩ Unsuppress</button>`;
+  } else if (f.status==="fail"||f.status==="warn") {
+    supSection = `
+      <button class="suppress-btn" data-url="${esc(url)}" data-check="${esc(f.check_name)}" data-idx="${i}">⊘ Suppress</button>
+      <div class="suppress-inline" id="sup-form-${i}">
+        <input type="text" placeholder="Reason (optional)" id="sup-reason-${i}">
+        <button class="suppress-confirm" data-url="${esc(url)}" data-check="${esc(f.check_name)}" data-idx="${i}">Confirm</button>
+        <button class="suppress-cancel" data-idx="${i}">Cancel</button>
+      </div>`;
+  }
+  return `<tr${f.suppressed?' class="suppressed-row"':""}>
+    <td><span class="sev-pill ${f.severity}">${f.severity}</span></td>
+    <td>
+      <div style="font-weight:500">${escHtml(f.check_name)}</div>
+      <div style="font-size:11px;color:#94a3b8">${escHtml(f.check_category)}</div>
+    </td>
+    <td><span class="status-pill ${f.status}">${f.status}</span></td>
+    ${ageTd}
+    <td>
+      <div style="color:#475569;line-height:1.5">${escHtml(f.detail)}</div>
+      ${evSection}${supSection}
+    </td>
+  </tr>`;
+}
+
+function attachDetailHandlers(tbody, findingsRef, rerender, refreshTable) {
+  tbody.querySelectorAll(".evidence-toggle").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const block = document.getElementById(`ev-${btn.dataset.idx}`);
+      const open = block.classList.toggle("open");
+      btn.textContent = (open?"▼":"▶") + " Evidence";
+    });
+  });
+  tbody.querySelectorAll(".suppress-btn").forEach(btn => {
+    btn.addEventListener("click", () => {
+      document.getElementById(`sup-form-${btn.dataset.idx}`).classList.add("open");
+      btn.style.display = "none";
+    });
+  });
+  tbody.querySelectorAll(".suppress-cancel").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const form = document.getElementById(`sup-form-${btn.dataset.idx}`);
+      form.classList.remove("open");
+      form.previousElementSibling.style.display = "";
+    });
+  });
+  tbody.querySelectorAll(".suppress-confirm").forEach(btn => {
+    btn.addEventListener("click", async () => {
+      const reason = (document.getElementById(`sup-reason-${btn.dataset.idx}`)?.value||"").trim();
+      await apiFetch("/api/suppress", {
+        method:"POST", headers:{"Content-Type":"application/json"},
+        body: JSON.stringify({ url:btn.dataset.url, check_name:btn.dataset.check, reason }),
+      });
+      // Reload findings for this context into findingsRef in-place
+      const ctx = detailContext;
+      if (ctx) {
+        const p = new URLSearchParams({runkey:currentRunkey,url:ctx.url,category:ctx.category});
+        const fresh = await apiFetch(`/api/detail?${p}`);
+        findingsRef.length = 0; fresh.forEach(f => findingsRef.push(f));
+      }
+      rerender(); refreshTable();
+    });
+  });
+  tbody.querySelectorAll(".unsuppress-btn").forEach(btn => {
+    btn.addEventListener("click", async () => {
+      await apiFetch(`/api/suppress/${btn.dataset.supId}`, { method:"DELETE" });
+      const ctx = detailContext;
+      if (ctx) {
+        const p = new URLSearchParams({runkey:currentRunkey,url:ctx.url,category:ctx.category});
+        const fresh = await apiFetch(`/api/detail?${p}`);
+        findingsRef.length = 0; fresh.forEach(f => findingsRef.push(f));
+      }
+      rerender(); refreshTable();
+    });
+  });
+}
+
+document.getElementById("detailTable").querySelector("thead").addEventListener("click", e => {
+  const th = e.target.closest("th[data-dcol]"); if (!th) return;
+  const col = th.dataset.dcol;
+  detailSortDir = col===detailSortCol ? (detailSortDir==="asc"?"desc":"asc") : "asc";
+  detailSortCol = col;
+  updateSortHeaders("#detailTable","dcol",detailSortCol,detailSortDir);
+  renderDetailTable();
+});
+
+closeOnOverlay("modalOverlay", "closeModal", () => { detailContext=null; });
+
+// ─── School summary modal ─────────────────────────────────────────────────────
+async function openSchoolSummary(url) {
+  document.getElementById("schoolTitle").textContent    = url.replace(/^https?:\/\//,"");
+  document.getElementById("schoolMeta").innerHTML       = '<span style="color:#94a3b8;font-size:13px">Loading…</span>';
+  document.getElementById("schoolCatGrid").innerHTML    = "";
+  document.getElementById("schoolTrendChart").innerHTML = "";
+  document.getElementById("schoolFindingsBody").innerHTML =
+    '<tr class="state-row"><td colspan="6">Loading…</td></tr>';
+  document.getElementById("schoolOverlay").classList.add("open");
+
+  const data = await apiFetch(`/api/school?runkey=${enc(currentRunkey)}&url=${enc(url)}`);
+  schoolFindings = data.findings;
+
+  // Find this school in allRows for category counts
+  const row = allRows.find(r => r.url === url);
+  const {c: rc, h: rh, m: rm} = row ? rowCHM(row) : {c:0, h:0, m:0};
+
+  // Meta bar
+  const cov = data.coverage;
+  const covPill = cov.warning
+    ? `<span class="coverage-pill warn">⚠ ${cov.errors} errors / ${cov.total} checks</span>`
+    : `<span class="coverage-pill ok">✓ Coverage OK (${cov.errors} errors / ${cov.total} checks)</span>`;
+  document.getElementById("schoolMeta").innerHTML = `
+    <div>
+      <div class="school-risk-label">Risk</div>
+      <div style="margin-top:4px">${riskBadge(rc, rh, rm)}</div>
+    </div>
+    <div style="flex:1"></div>
+    ${covPill}`;
+
+  // Category cards
+  if (row) {
+    document.getElementById("schoolCatGrid").innerHTML = GROUPS.map(group => {
+      const c = row.categories?.[group] || {critical:0, high:0, medium:0, suppressed:0};
+      const badges = [
+        c.critical ? `<span class="badge critical">${c.critical}</span>` : "",
+        c.high     ? `<span class="badge high">${c.high}</span>` : "",
+        c.medium   ? `<span class="badge medium">${c.medium}</span>` : "",
+        c.suppressed ? `<span class="badge suppressed">⊘${c.suppressed}</span>` : "",
+      ].filter(Boolean).join("") || `<span style="font-size:11px;color:#16a34a">✓ Clean</span>`;
+      return `<div class="cat-card" data-url="${esc(url)}" data-group="${group}">
+        <div class="cat-card-label">${GROUP_LABELS[group]}</div>
+        <div class="cat-card-counts">${badges}</div>
+      </div>`;
+    }).join("");
+    document.getElementById("schoolCatGrid").querySelectorAll(".cat-card").forEach(card => {
+      card.addEventListener("click", () => {
+        // Open detail modal on top — school modal stays open beneath it
+        openDetail(card.dataset.url, card.dataset.group);
+      });
+    });
+  }
+
+  // Trend chart
+  const series = trendData[url];
+  document.getElementById("schoolTrendChart").innerHTML =
+    series && series.length > 1 ? renderTrendChart(series) : '<span style="font-size:12px;color:#94a3b8">Insufficient data for trend</span>';
+
+  // Findings table
+  schoolSortCol = "severity"; schoolSortDir = "asc";
+  updateSortHeaders("#schoolFindingsTable","scol",schoolSortCol,schoolSortDir);
+  renderSchoolFindings();
+}
+
+function renderSchoolFindings() {
+  const base   = nvdEnabled ? schoolFindings : schoolFindings.filter(f => f.check_name !== "component_vulnerable_version");
+  const sorted = base.slice().sort(makeDetailComp(schoolSortCol, schoolSortDir));
+  const tbody  = document.getElementById("schoolFindingsBody");
+  if (!sorted.length) {
+    tbody.innerHTML = '<tr class="state-row"><td colspan="6">No findings.</td></tr>';
+    return;
+  }
+  tbody.innerHTML = sorted.map(f => {
+    let ageTd = "<td>–</td>";
+    if (f.age_days !== null && f.age_days !== undefined)
+      ageTd = `<td><span class="age-badge${f.age_days>=30?" old":""}">${f.age_days}d</span></td>`;
+    return `<tr${f.suppressed?' class="suppressed-row"':""}>
+      <td><span class="sev-pill ${f.severity}">${f.severity}</span></td>
+      <td style="font-size:12px;color:#64748b">${escHtml(f.check_category)}</td>
+      <td style="font-weight:500;font-size:13px">${escHtml(f.check_name)}</td>
+      <td><span class="status-pill ${f.status}">${f.status}</span></td>
+      ${ageTd}
+      <td style="color:#475569;font-size:13px;line-height:1.4">${escHtml(f.detail)}${f.suppressed?`<span class="suppressed-badge" style="margin-left:6px">Suppressed</span>`:""}
+      </td>
+    </tr>`;
+  }).join("");
+}
+
+document.getElementById("schoolFindingsTable").querySelector("thead").addEventListener("click", e => {
+  const th = e.target.closest("th[data-scol]"); if (!th) return;
+  const col = th.dataset.scol;
+  schoolSortDir = col===schoolSortCol ? (schoolSortDir==="asc"?"desc":"asc") : "asc";
+  schoolSortCol = col;
+  updateSortHeaders("#schoolFindingsTable","scol",schoolSortCol,schoolSortDir);
+  renderSchoolFindings();
+});
+
+closeOnOverlay("schoolOverlay", "closeSchoolModal");
+
+// Full trend chart (bigger, labeled)
+function renderTrendChart(series) {
+  const W=400, H=80, PL=28, PR=8, PT=8, PB=20;
+  const iW = W-PL-PR, iH = H-PT-PB;
+  const n   = series.length;
+  const max = Math.max(...series, 1);
+  const x = i => PL + (i/(n-1))*iW;
+  const y = v => PT + iH - (v/max)*iH;
+
+  const pts  = series.map((v,i)=>`${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(" ");
+  const fill = `${x(0).toFixed(1)},${(PT+iH).toFixed(1)} ${pts} ${x(n-1).toFixed(1)},${(PT+iH).toFixed(1)}`;
+  const last = series[series.length-1], first = series[0];
+  const color = last < first ? "#16a34a" : last > first ? "#dc2626" : "#94a3b8";
+
+  // Y axis labels (0 and max)
+  const yLabels = `
+    <text x="${PL-4}" y="${(PT+4).toFixed(1)}" text-anchor="end" font-size="9" fill="#94a3b8">${max}</text>
+    <text x="${PL-4}" y="${(PT+iH+3).toFixed(1)}" text-anchor="end" font-size="9" fill="#94a3b8">0</text>`;
+
+  // Dots + value labels for each point
+  const dots = series.map((v,i) =>
+    `<circle cx="${x(i).toFixed(1)}" cy="${y(v).toFixed(1)}" r="3" fill="${color}"/>
+     <text x="${x(i).toFixed(1)}" y="${(y(v)-5).toFixed(1)}" text-anchor="middle" font-size="9" fill="${color}">${v}</text>`
+  ).join("");
+
+  return `<svg width="${W}" height="${H}" xmlns="http://www.w3.org/2000/svg">
+    <line x1="${PL}" y1="${PT}" x2="${PL}" y2="${PT+iH}" stroke="#e2e8f0" stroke-width="1"/>
+    <line x1="${PL}" y1="${PT+iH}" x2="${PL+iW}" y2="${PT+iH}" stroke="#e2e8f0" stroke-width="1"/>
+    ${yLabels}
+    <polygon points="${fill}" fill="${color}" opacity="0.08"/>
+    <polyline points="${pts}" fill="none" stroke="${color}" stroke-width="2"
+      stroke-linejoin="round" stroke-linecap="round"/>
+    ${dots}
+  </svg>`;
+}
+
+// ─── Worst offenders ──────────────────────────────────────────────────────────
+let woFindingsData   = [];
+let woPrevalentData  = [];
+let woFindingsSort   = { col:"severity",     dir:"asc"  };
+let woPrevalentSort  = { col:"school_count", dir:"desc" };
+
+document.getElementById("navAnalysis").addEventListener("click", openWorstOffenders);
+closeOnOverlay("woOverlay","closeWoModal");
+
+document.getElementById("woExportBtn").addEventListener("click", () => {
+  const activeTab = document.querySelector("#woOverlay .tab-btn.active")?.dataset.tab || "findings";
+  let rows, headers, filename;
+
+  if (activeTab === "findings") {
+    headers = ["severity","age_days","url","check_category","check_name","detail"];
+    rows = woFindingsData.map(r => [r.severity, r.age_days, r.url, r.check_category, r.check_name, r.detail||""]);
+    filename = "analysis_worst_findings.csv";
+  } else if (activeTab === "schools") {
+    headers = ["rank","url","risk_score","critical","high","medium"];
+    rows = schoolScores.slice().filter(r => r.risk_score > 0)
+      .sort((a,b) => b.risk_score - a.risk_score).slice(0,20)
+      .map((r,i) => [i+1, r.url, riskScore(r.c,r.h,r.m), r.c||0, r.h||0, r.m||0]);
+    filename = "analysis_worst_schools.csv";
+  } else if (activeTab === "best") {
+    headers = ["rank","url","risk_score","critical","high","medium"];
+    rows = schoolScores.slice().sort((a,b) => a.risk_score - b.risk_score).slice(0,20)
+      .map((r,i) => [i+1, r.url, riskScore(r.c,r.h,r.m), r.c||0, r.h||0, r.m||0]);
+    filename = "analysis_best_schools.csv";
+  } else {
+    headers = ["severity","check_category","check_name","school_count","pct_schools"];
+    rows = woPrevalentData.map(r => [r.severity, r.check_category, r.check_name, r.school_count, r.pct_schools]);
+    filename = "analysis_prevalent_issues.csv";
+  }
+
+  const csvContent = [headers, ...rows]
+    .map(r => r.map(v => `"${String(v).replace(/"/g,'""')}"`).join(","))
+    .join("\n");
+  const blob = new Blob([csvContent], {type:"text/csv"});
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(a.href);
+});
+
+document.getElementById("woOverlay").querySelectorAll(".tab-btn").forEach(btn => {
+  btn.addEventListener("click", () => {
+    document.querySelectorAll("#woOverlay .tab-btn").forEach(b => b.classList.remove("active"));
+    document.querySelectorAll("#woOverlay .tab-panel").forEach(p => p.classList.remove("active"));
+    btn.classList.add("active");
+    document.getElementById(`tab-${btn.dataset.tab}`).classList.add("active");
+  });
+});
+
+// Sort listeners
+document.getElementById("woFindingsTable").querySelector("thead").addEventListener("click", e => {
+  const th = e.target.closest("th[data-wfcol]"); if (!th) return;
+  const col = th.dataset.wfcol;
+  woFindingsSort.dir = col === woFindingsSort.col ? (woFindingsSort.dir==="asc"?"desc":"asc") : "asc";
+  woFindingsSort.col = col;
+  updateSortHeaders("#woFindingsTable","wfcol",woFindingsSort.col,woFindingsSort.dir);
+  renderWorstFindings();
+});
+document.getElementById("woPrevalentTable").querySelector("thead").addEventListener("click", e => {
+  const th = e.target.closest("th[data-wpcol]"); if (!th) return;
+  const col = th.dataset.wpcol;
+  woPrevalentSort.dir = col === woPrevalentSort.col ? (woPrevalentSort.dir==="asc"?"desc":"asc") : "desc";
+  woPrevalentSort.col = col;
+  updateSortHeaders("#woPrevalentTable","wpcol",woPrevalentSort.col,woPrevalentSort.dir);
+  renderPrevalentIssues();
+});
+
+async function openWorstOffenders() {
+  document.getElementById("woOverlay").classList.add("open");
+  document.getElementById("woFindingsBody").innerHTML =
+    '<tr class="state-row"><td colspan="5">Loading…</td></tr>';
+  document.getElementById("woPrevalentBody").innerHTML =
+    '<tr class="state-row"><td colspan="5">Loading…</td></tr>';
+  document.getElementById("woSchoolsBody").innerHTML =
+    '<tr class="state-row"><td colspan="6">Loading…</td></tr>';
+  document.getElementById("woBestBody").innerHTML =
+    '<tr class="state-row"><td colspan="6">Loading…</td></tr>';
+
+  const [findings, prevalent, scores] = await Promise.all([
+    apiFetch(`/api/worst-findings?runkey=${enc(currentRunkey)}&limit=100`),
+    apiFetch(`/api/prevalent-issues?runkey=${enc(currentRunkey)}`),
+    apiFetch(`/api/school-scores?runkey=${enc(currentRunkey)}${nvdEnabled ? "" : "&hide_nvd=1"}`),
+  ]);
+  woFindingsData  = findings;
+  woPrevalentData = prevalent;
+  schoolScores    = scores;
+  renderWorstFindings();
+  renderPrevalentIssues();
+  renderWorstSchools();
+  renderBestSchools();
+}
+
+function renderWorstFindings() {
+  const { col, dir } = woFindingsSort;
+  const sign = dir === "asc" ? 1 : -1;
+  const sorted = woFindingsData.slice().sort((a, b) => {
+    if (col === "severity") return sign * ((SEV_ORDER[a.severity]??9) - (SEV_ORDER[b.severity]??9));
+    if (col === "age_days") return sign * ((a.age_days??9999) - (b.age_days??9999));
+    return sign * (a[col]||"").localeCompare(b[col]||"");
+  });
+  const tbody = document.getElementById("woFindingsBody");
+  if (!sorted.length) {
+    tbody.innerHTML = '<tr class="state-row"><td colspan="5">No adverse findings.</td></tr>';
+    return;
+  }
+  tbody.innerHTML = sorted.map(f => {
+    const ageBadge  = f.age_days !== null
+      ? `<span class="age-badge${f.age_days>=30?" old":""}">${f.age_days}d</span>` : "–";
+    const urlDisplay = f.url.replace(/^https?:\/\//,"");
+    return `<tr>
+      <td><span class="sev-pill ${f.severity}">${f.severity}</span></td>
+      <td>${ageBadge}</td>
+      <td style="font-size:12px;max-width:180px;overflow:hidden;text-overflow:ellipsis" title="${esc(f.url)}">${escHtml(urlDisplay)}</td>
+      <td style="font-size:12px;color:#64748b">${escHtml(f.check_category)}</td>
+      <td>
+        <div style="font-weight:500;font-size:13px">${escHtml(f.check_name)}</div>
+        <div style="font-size:12px;color:#64748b;margin-top:2px">${escHtml(f.detail)}</div>
+      </td>
+    </tr>`;
+  }).join("");
+}
+
+function renderWorstSchools() {
+  const rows = schoolScores.slice()
+    .filter(r => r.risk_score > 0)
+    .sort((a, b) => b.risk_score - a.risk_score)
+    .slice(0, 20);
+  const tbody = document.getElementById("woSchoolsBody");
+  if (!rows.length) {
+    tbody.innerHTML = '<tr class="state-row"><td colspan="6">No adverse findings.</td></tr>';
+    return;
+  }
+  tbody.innerHTML = rows.map((r, i) => {
+    const rank   = i + 1;
+    const rankEl = `<span class="wo-school-rank${rank<=3?" top3":""}">${rank}</span>`;
+    const urlDisp = r.url.replace(/^https?:\/\//,"");
+    return `<tr>
+      <td>${rankEl}</td>
+      <td style="font-size:13px;max-width:240px;overflow:hidden;text-overflow:ellipsis" title="${esc(r.url)}">${escHtml(urlDisp)}</td>
+      <td>${riskBadge(r.c, r.h, r.m)}</td>
+      <td style="font-weight:700;color:#111">${r.c||"–"}</td>
+      <td style="font-weight:700;color:#dc2626">${r.h||"–"}</td>
+      <td style="font-weight:700;color:#d97706">${r.m||"–"}</td>
+    </tr>`;
+  }).join("");
+}
+
+function renderBestSchools() {
+  const rows = schoolScores.slice()
+    .sort((a, b) => a.risk_score - b.risk_score)
+    .slice(0, 20);
+  const tbody = document.getElementById("woBestBody");
+  if (!rows.length) {
+    tbody.innerHTML = '<tr class="state-row"><td colspan="6">No data.</td></tr>';
+    return;
+  }
+  tbody.innerHTML = rows.map((r, i) => {
+    const rank    = i + 1;
+    const rankEl  = `<span class="wo-school-rank${rank<=3?" top3":""}">${rank}</span>`;
+    const urlDisp = r.url.replace(/^https?:\/\//,"");
+    return `<tr>
+      <td>${rankEl}</td>
+      <td style="font-size:13px;max-width:240px;overflow:hidden;text-overflow:ellipsis" title="${esc(r.url)}">${escHtml(urlDisp)}</td>
+      <td>${riskBadge(r.c, r.h, r.m)}</td>
+      <td style="color:#64748b">${r.c||"–"}</td>
+      <td style="color:#64748b">${r.h||"–"}</td>
+      <td style="color:#64748b">${r.m||"–"}</td>
+    </tr>`;
+  }).join("");
+}
+
+function renderPrevalentIssues() {
+  const { col, dir } = woPrevalentSort;
+  const sign = dir === "asc" ? 1 : -1;
+  const sorted = woPrevalentData.slice().sort((a, b) => {
+    if (col === "severity")     return sign * ((SEV_ORDER[a.severity]??9) - (SEV_ORDER[b.severity]??9));
+    if (col === "school_count") return sign * (a.school_count - b.school_count);
+    if (col === "pct_schools")  return sign * (a.pct_schools  - b.pct_schools);
+    return sign * (a[col]||"").localeCompare(b[col]||"");
+  });
+  const tbody = document.getElementById("woPrevalentBody");
+  if (!sorted.length) {
+    tbody.innerHTML = '<tr class="state-row"><td colspan="5">No adverse findings.</td></tr>';
+    return;
+  }
+  const maxCount = Math.max(...sorted.map(i => i.school_count), 1);
+  tbody.innerHTML = sorted.map((issue, idx) => {
+    const barPct   = Math.round((issue.school_count / maxCount) * 100);
+    const barColor = issue.severity === "critical" ? "#1e1e1e"
+                   : issue.severity === "high"     ? "#dc2626" : "#d97706";
+    return `<tr>
+      <td><span class="sev-pill ${issue.severity}">${issue.severity}</span></td>
+      <td style="font-size:12px;color:#64748b">${escHtml(issue.check_category)}</td>
+      <td style="font-weight:500;font-size:13px">${escHtml(issue.check_name)}</td>
+      <td>
+        <div style="display:flex;align-items:center;gap:7px">
+          <div style="flex:1;height:6px;background:#f1f5f9;border-radius:3px;min-width:60px">
+            <div style="width:${barPct}%;height:100%;background:${barColor};border-radius:3px;opacity:0.7"></div>
+          </div>
+          <span class="affected-count" data-check="${esc(issue.check_name)}" data-idx="${idx}"
+            style="font-weight:700;font-size:13px;min-width:18px;text-align:right;cursor:pointer;
+                   color:#2563eb;text-decoration:underline dotted"
+            title="Click to see affected schools">${issue.school_count}</span>
+        </div>
+      </td>
+      <td style="font-size:13px;color:#64748b">${issue.pct_schools}%</td>
+    </tr>
+    <tr class="affected-schools-row" id="affected-row-${idx}" style="display:none">
+      <td colspan="5" style="padding:0">
+        <div id="affected-content-${idx}" style="padding:8px 14px 10px;background:#f8fafc;border-top:1px solid #e2e8f0">
+          Loading…
+        </div>
+      </td>
+    </tr>`;
+  }).join("");
+
+  // Attach click handlers for affected school counts
+  tbody.querySelectorAll(".affected-count").forEach(el => {
+    el.addEventListener("click", () => toggleAffectedSchools(el.dataset.check, el.dataset.idx));
+  });
+}
+
+async function toggleAffectedSchools(checkName, idx) {
+  const row     = document.getElementById(`affected-row-${idx}`);
+  const content = document.getElementById(`affected-content-${idx}`);
+  if (row.style.display !== "none") { row.style.display = "none"; return; }
+  row.style.display = "";
+  content.textContent = "Loading…";
+  const params  = new URLSearchParams({ runkey: currentRunkey, check_name: checkName });
+  const schools = await apiFetch(`/api/affected-schools?${params}`);
+  if (!schools.length) { content.textContent = "No affected schools."; return; }
+  content.innerHTML = schools.map(s =>
+    `<div style="display:flex;align-items:baseline;gap:10px;padding:3px 0;border-bottom:1px solid #f1f5f9">
+      <span class="sev-pill ${s.severity}" style="flex-shrink:0">${s.severity}</span>
+      <span style="font-size:12px;color:#1e293b;font-weight:500">${escHtml(s.url.replace(/^https?:\/\//,""))}</span>
+      <span style="font-size:12px;color:#94a3b8;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(s.detail)}</span>
+    </div>`
+  ).join("");
+}
+
+// ─── Suppressions panel ───────────────────────────────────────────────────────
+document.getElementById("suppressionsBtn").addEventListener("click", openSuppressionsPanel);
+closeOnOverlay("suppressionsOverlay","closeSuppressionsModal");
+
+async function openSuppressionsPanel() {
+  document.getElementById("suppressionsOverlay").classList.add("open");
+  document.getElementById("suppressionsBody").innerHTML =
+    '<tr class="state-row"><td colspan="5">Loading…</td></tr>';
+  const sups = await apiFetch("/api/suppressions");
+  renderSuppressionsTable(sups);
+}
+
+function renderSuppressionsTable(suppressions) {
+  const subtitle = document.getElementById("suppressionsSubtitle");
+  const tbody    = document.getElementById("suppressionsBody");
+  if (!suppressions.length) {
+    subtitle.textContent = "No active suppressions";
+    tbody.innerHTML = '<tr class="state-row"><td colspan="5">No suppressions have been applied.</td></tr>';
+    return;
+  }
+  subtitle.textContent = `${suppressions.length} active suppression${suppressions.length!==1?"s":""}`;
+  tbody.innerHTML = suppressions.map(s =>
+    `<tr>
+      <td style="font-size:12px;max-width:200px;overflow:hidden;text-overflow:ellipsis" title="${esc(s.url)}">${escHtml(s.url.replace(/^https?:\/\//,""))}</td>
+      <td style="font-size:12px;font-weight:500">${escHtml(s.check_name)}</td>
+      <td style="font-size:12px;color:#64748b">${escHtml(s.reason||"—")}</td>
+      <td style="font-size:12px;color:#94a3b8">${(s.created_at||"").slice(0,10)}</td>
+      <td><button class="unsuppress-btn" data-sup-id="${s.id}" style="margin-top:0">Remove</button></td>
+    </tr>`
+  ).join("");
+  tbody.querySelectorAll(".unsuppress-btn").forEach(btn => {
+    btn.addEventListener("click", async () => {
+      await apiFetch(`/api/suppress/${btn.dataset.supId}`, { method:"DELETE" });
+      const updated = await apiFetch("/api/suppressions");
+      renderSuppressionsTable(updated);
+      if (currentRunkey) loadTablePage();
+    });
+  });
+}
+
+// ─── Shared sort helpers ──────────────────────────────────────────────────────
+function makeDetailComp(col, dir) {
+  const sign = dir==="asc"?1:-1;
+  if (col==="severity")  return (a,b) => sign*((SEV_ORDER[a.severity]??9)-(SEV_ORDER[b.severity]??9));
+  if (col==="age_days")  return (a,b) => sign*((a.age_days??9999)-(b.age_days??9999));
+  return (a,b) => sign*(a[col]||"").toString().localeCompare((b[col]||"").toString());
+}
+function updateSortHeaders(tableSelector, attrName, col, dir) {
+  document.querySelectorAll(`${tableSelector} th`).forEach(h => {
+    h.classList.remove("sorted-asc","sorted-desc");
+    if (h.dataset[attrName]===col) h.classList.add(dir==="asc"?"sorted-asc":"sorted-desc");
+  });
+}
+
+// ─── Modal helpers ────────────────────────────────────────────────────────────
+function closeOnOverlay(overlayId, closeBtnId, onClose) {
+  const overlay = document.getElementById(overlayId);
+  document.getElementById(closeBtnId).addEventListener("click", () => {
+    overlay.classList.remove("open"); if (onClose) onClose();
+  });
+  overlay.addEventListener("click", e => {
+    if (e.target === overlay) { overlay.classList.remove("open"); if (onClose) onClose(); }
+  });
+}
+document.addEventListener("keydown", e => {
+  if (e.key !== "Escape") return;
+  // Close only the topmost open modal (highest z-index)
+  const open = [...document.querySelectorAll(".modal-overlay.open")];
+  if (!open.length) return;
+  const topmost = open.reduce((best, el) =>
+    parseInt(getComputedStyle(el).zIndex || 0) >= parseInt(getComputedStyle(best).zIndex || 0)
+      ? el : best
+  );
+  topmost.classList.remove("open");
+  if (topmost.id === "modalOverlay") detailContext = null;
+});
+
+// ─── Utility ─────────────────────────────────────────────────────────────────
+function enc(s)     { return encodeURIComponent(s); }
+function esc(s)     { return String(s).replace(/"/g,"&quot;").replace(/'/g,"&#39;"); }
+function escHtml(s) { return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;"); }
+async function apiFetch(url, opts) {
+  const r = await fetch(url, opts);
+  if (!r.ok) throw new Error(`${r.status} — ${url}`);
+  return r.json();
+}
+
+// ─── Boot ────────────────────────────────────────────────────────────────────
+init();
+</script>
+</body>
+</html>
