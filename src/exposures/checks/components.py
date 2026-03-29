@@ -15,12 +15,11 @@ from ..models import CheckCategory, Finding, ScanTarget, Severity, Status
 from ..nvd import NVDClient, NVD_SEVERITY_MAP
 from .base import BaseCheck
 
-
-# ---------------------------------------------------------------------------
 # Known vulnerable version table
-# (product_lower → list of (max_version_exclusive, severity, description))
+# (product_lower -> list of (max_version_exclusive, severity, description))
 # Versions are compared as tuples of ints.
-# ---------------------------------------------------------------------------
+
+#TODO think about the value of checks like this that need to be kept up to date
 
 KNOWN_VULNERABLE: dict[str, list[tuple[tuple[int, ...], Severity, str]]] = {
     "apache": [
@@ -51,8 +50,9 @@ KNOWN_VULNERABLE: dict[str, list[tuple[tuple[int, ...], Severity, str]]] = {
     ],
 }
 
-
 # Well-known paths to probe
+# this will generate false positives for sites that return the same page irrespective of url called
+# obv that is crap practice and clearly wrong but it does mean a FP from a security perspective
 WELL_KNOWN_PATHS: list[dict] = [
     {
         "path": "/.git/HEAD",
@@ -134,7 +134,6 @@ WELL_KNOWN_PATHS: list[dict] = [
     },
 ]
 
-
 class ComponentsCheck(BaseCheck):
     name = "components"
     category = CheckCategory.COMPONENTS
@@ -186,10 +185,8 @@ class ComponentsCheck(BaseCheck):
 
         return findings
 
-    # ------------------------------------------------------------------
     # Tier 1: Header fingerprinting
-    # ------------------------------------------------------------------
-
+    
     async def _fetch_headers(
         self, session: aiohttp.ClientSession, url: str
     ) -> dict | None:
@@ -218,7 +215,7 @@ class ComponentsCheck(BaseCheck):
             ("Via", ""),
         ]
 
-        # Also check for WordPress-specific headers
+        # check for WordPress-specific headers
         wp_headers = ["X-WP-Total", "X-WP-TotalPages", "X-Pingback"]
         for wph in wp_headers:
             if _header(headers, wph):
@@ -261,11 +258,8 @@ class ComponentsCheck(BaseCheck):
                 )
 
         return findings
-
-    # ------------------------------------------------------------------
+   
     # Tier 2: Well-known paths
-    # ------------------------------------------------------------------
-
     async def _check_well_known_paths(
         self,
         session: aiohttp.ClientSession,
@@ -332,11 +326,7 @@ class ComponentsCheck(BaseCheck):
                 evidence={"url": full_url, "body_preview": body_preview[:200]},
             )
         ]
-
-    # ------------------------------------------------------------------
-    # robots.txt
-    # ------------------------------------------------------------------
-
+    
     async def _check_robots_txt(
         self,
         session: aiohttp.ClientSession,
@@ -373,10 +363,6 @@ class ComponentsCheck(BaseCheck):
                 },
             )
         ]
-
-    # ------------------------------------------------------------------
-    # security.txt
-    # ------------------------------------------------------------------
 
     async def _check_security_txt(
         self,
@@ -424,10 +410,6 @@ class ComponentsCheck(BaseCheck):
                         evidence={"expected_url": security_txt_url},
                     )
                 ]
-
-    # ------------------------------------------------------------------
-    # CVE correlation
-    # ------------------------------------------------------------------
 
     async def _correlate_cve(
         self,
@@ -522,7 +504,6 @@ class ComponentsCheck(BaseCheck):
 
         return findings
 
-
 def _header(headers: dict, name: str) -> str | None:
     name_lower = name.lower()
     for k, v in headers.items():
@@ -530,15 +511,14 @@ def _header(headers: dict, name: str) -> str | None:
             return v
     return None
 
-
 def _parse_product_version(value: str) -> tuple[str, str]:
     """Extract (product, version) from a header value like 'Apache/2.4.51 (Unix)'.
 
     Handles formats:
-      - 'Apache/2.4.51 (Unix)'    → ('Apache', '2.4.51')
-      - 'PHP/7.3.0'               → ('PHP', '7.3.0')
-      - 'nginx'                   → ('nginx', '')
-      - 'Microsoft-IIS/10.0'      → ('Microsoft-IIS', '10.0')
+      - 'Apache/2.4.51 (Unix)'    -> ('Apache', '2.4.51')
+      - 'PHP/7.3.0'               -> ('PHP', '7.3.0')
+      - 'nginx'                   -> ('nginx', '')
+      - 'Microsoft-IIS/10.0'      -> ('Microsoft-IIS', '10.0')
     """
     value = value.strip()
     if not value:
@@ -566,7 +546,7 @@ def _parse_version_tuple(version: str) -> tuple[int, ...] | None:
     try:
         ints: list[int] = []
         for p in parts[:4]:
-            # Strip non-numeric suffix (e.g. '51rc1' → 51)
+            # Strip non-numeric suffix (e.g. '51rc1')
             m = re.match(r"^(\d+)", p)
             if m:
                 ints.append(int(m.group(1)))
