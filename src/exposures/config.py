@@ -1,4 +1,4 @@
-"""Configuration management using pydantic-settings.
+"""Configuration management 
 settings.yaml
 env variables will override specific fields if present
 """
@@ -7,10 +7,9 @@ from __future__ import annotations
 import os
 from pathlib import Path
 from typing import Any
-
-import yaml
 from pydantic import BaseModel, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
+import yaml
 
 class RunConfig(BaseModel):
     dry_run: bool = False
@@ -66,6 +65,10 @@ class OpenRedirectCheckConfig(BaseModel):
     pass  # no config currently needed beyond the shared concurrency settings
 
 
+class SafeBrowsingCheckConfig(BaseModel):
+    api_key: str = ""
+
+
 class ChecksConfig(BaseModel):
     enabled: list[str] = [
         "http_headers",
@@ -78,6 +81,9 @@ class ChecksConfig(BaseModel):
         "open_redirect",
         "cert_transparency",
         "cloud_storage",
+        "domain_expiry",
+        "safe_browsing",
+        "dnsbl",
     ]
     http_headers: HttpHeadersCheckConfig = Field(default_factory=HttpHeadersCheckConfig)
     tls: TLSCheckConfig = Field(default_factory=TLSCheckConfig)
@@ -85,16 +91,17 @@ class ChecksConfig(BaseModel):
     email_security: EmailSecurityCheckConfig = Field(default_factory=EmailSecurityCheckConfig)
     cert_transparency: CertTransparencyCheckConfig = Field(default_factory=CertTransparencyCheckConfig)
     open_redirect: OpenRedirectCheckConfig = Field(default_factory=OpenRedirectCheckConfig)
+    safe_browsing: SafeBrowsingCheckConfig = Field(default_factory=SafeBrowsingCheckConfig)
 
 
 class SplunkConfig(BaseModel):
     url: str = ""
     token: str = ""
-    index: str = "cyber_exposure"
+    index: str = "school_exposures"
     source: str = "exposure_scanner"
     verify_tls: bool = True
     batch_size: int = 100
-
+    #TODO index and source need setting appropriately, these are just place holders for now
 
 class CensysConfig(BaseModel):
     api_id: str = ""
@@ -160,6 +167,10 @@ def load_config(yaml_path: str | Path = "./config/settings.yaml") -> Config:
     nvd_key = os.environ.get("NVD_API_KEY", "")
     if nvd_key:
         env_overrides.setdefault("checks", {}).setdefault("components", {})["nvd_api_key"] = nvd_key
+
+    gsb_key = os.environ.get("GOOGLE_SAFE_BROWSING_API_KEY", "")
+    if gsb_key:
+        env_overrides.setdefault("checks", {}).setdefault("safe_browsing", {})["api_key"] = gsb_key
 
     merged = _deep_merge(raw, env_overrides)
     return Config.model_validate(merged)

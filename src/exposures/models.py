@@ -30,6 +30,8 @@ class CheckCategory(str, Enum):
     NETWORK_EXPOSURE = "network_exposure"
     INSECURE_SERVICES = "insecure_services"
     CLOUD_STORAGE = "cloud_storage"
+    DOMAIN_EXPIRY = "domain_expiry"
+    REPUTATION = "reputation"
 
 
 class Finding(BaseModel):

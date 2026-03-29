@@ -30,6 +30,9 @@ checks:
     - open_redirect
     - cert_transparency
     - cloud_storage
+    - domain_expiry
+    - safe_browsing
+    - dnsbl
 
   http_headers:
     follow_redirects: true
@@ -56,6 +59,9 @@ checks:
     flag_unexpected_issuers: true
 
   open_redirect: {}
+
+  safe_browsing:
+    api_key: ""  # set via GOOGLE_SAFE_BROWSING_API_KEY env var
 
 splunk:
   url: ""
