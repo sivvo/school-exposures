@@ -50,7 +50,6 @@ _SEVERITY_RANK: dict[str, int] = {
     "info":     0,
 }
 
-
 class DeltaFinding(NamedTuple):
     url: str
     business_unit: str
@@ -189,7 +188,7 @@ class HistoryStore:
                 else:
                     change = "persisting"
             else:
-                continue  # pass→pass or pass→pass — not interesting
+                continue  
 
             delta.append(
                 DeltaFinding(

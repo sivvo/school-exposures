@@ -583,7 +583,7 @@ def diff_runs(
         "persisting": "PERSISTING (unchanged)",
     }
 
-    typer.echo(f"\nDiff: {runkey_a}  →  {runkey_b}\n")
+    typer.echo(f"\nDiff: {runkey_a} -> {runkey_b}\n")
 
     for change_type in order:
         items = by_change.get(change_type, [])
@@ -594,7 +594,7 @@ def diff_runs(
         for d in sorted(items, key=lambda x: (x.url, x.check_name)):
             sev_info = ""
             if d.prev_severity and d.curr_severity and d.prev_severity != d.curr_severity:
-                sev_info = f"  [{d.prev_severity} → {d.curr_severity}]"
+                sev_info = f"  [{d.prev_severity} -> {d.curr_severity}]"
             elif d.curr_severity:
                 sev_info = f"  [{d.curr_severity}]"
             typer.echo(f"    {d.url}")
