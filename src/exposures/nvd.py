@@ -27,7 +27,9 @@ logger = structlog.get_logger(__name__)
 NVD_BASE = "https://services.nvd.nist.gov/rest/json/cves/2.0"
 
 # Map our detected product names (lowercase) to NVD CPE vendor:product strings.
-# Add entries here when new products are detected in your environment.
+# Add entries here when new products are detected in the environment.
+# TODO since the NVD data can be poor quality, this is both a maintenance hassle
+# and probably quite low value. THINK ABOUT DELETING!!
 CPE_MAP: dict[str, str] = {
     "apache":           "apache:http_server",
     "nginx":            "nginx:nginx",
@@ -52,10 +54,13 @@ CPE_MAP: dict[str, str] = {
     "caddy":            "caddyserver:caddy",
 }
 
-# Minimum severity to bother returning (NVD CVSS baseSeverity strings)
-_SEVERITY_INCLUDE = {"low", "medium", "high", "critical"}
+# Minimum severity to bother returning (NVD CVSS baseSeverity strings).
+# Medium is excluded — NVD CPE data quality means medium CVEs produce too many
+# false positives at scale (wrong OS, wrong deployment mode, overly broad CPE
+# ranges). Only high/critical are reliable enough to action across 24k schools.
+_SEVERITY_INCLUDE = {"high", "critical"}
 
-# Map NVD severity string → our Severity enum value
+# Map NVD severity string to our Severity enum value
 NVD_SEVERITY_MAP: dict[str, str] = {
     "critical": "critical",
     "high":     "high",
