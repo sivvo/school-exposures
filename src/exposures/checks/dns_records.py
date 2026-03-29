@@ -43,7 +43,6 @@ TAKEOVER_PATTERNS: list[str] = [
     ".bitbucket.io",
 ]
 
-
 class DNSRecordsCheck(BaseCheck):
     name = "dns_records"
     category = CheckCategory.DNS
@@ -73,10 +72,7 @@ class DNSRecordsCheck(BaseCheck):
 
         return findings
 
-    # ------------------------------------------------------------------
     # Individual checks
-    # ------------------------------------------------------------------
-
     async def _check_a_record(
         self,
         target: ScanTarget,

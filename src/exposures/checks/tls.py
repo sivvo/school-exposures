@@ -6,11 +6,9 @@ to inspect the certificate in detail.
 from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any
-
 from cryptography import x509
 from cryptography.hazmat.primitives import hashes
 from cryptography.x509.oid import ExtensionOID, NameOID
-
 from ..models import CheckCategory, Finding, ScanTarget, Severity, Status
 from .base import BaseCheck
 

@@ -63,9 +63,7 @@ class EmailSecurityCheck(BaseCheck):
 
         return findings
 
-    # ------------------------------------------------------------------
     # MX record
-    # ------------------------------------------------------------------
 
     async def _check_mx(
         self,
@@ -93,10 +91,8 @@ class EmailSecurityCheck(BaseCheck):
             except Exception as exc:
                 return [], [self.make_error(target, runkey, "mx_records_present", exc)]
 
-    # ------------------------------------------------------------------
+    
     # SPF policy
-    # ------------------------------------------------------------------
-
     async def _check_spf(
         self,
         target: ScanTarget,
@@ -230,10 +226,7 @@ class EmailSecurityCheck(BaseCheck):
             )
         ]
 
-    # ------------------------------------------------------------------
     # DMARC check
-    # ------------------------------------------------------------------
-
     async def _check_dmarc(
         self,
         target: ScanTarget,
@@ -341,6 +334,21 @@ class EmailSecurityCheck(BaseCheck):
                     Status.PASS, Severity.INFO,
                     f"DMARC pct={pct}",
                     evidence={"pct": pct},
+                )
+            )
+
+        # Subdomain policy (sp=)
+        # Default when omitted is to inherit p=, so only flag explicit sp=none
+        # against an enforcing parent policy, as this is a deliberate bypass.
+        sp = tags.get("sp", "").lower()
+        if policy in ("quarantine", "reject") and sp == "none":
+            findings.append(
+                self.make_finding(
+                    target, runkey, "dmarc_subdomain_policy",
+                    Status.WARN, Severity.HIGH,
+                    f"DMARC sp=none overrides the enforcing parent policy (p={policy}) "
+                    "for all subdomains — subdomains can be spoofed despite root domain protection",
+                    evidence={"sp": sp, "p": policy, "dmarc_record": dmarc_record},
                 )
             )
 

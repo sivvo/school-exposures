@@ -29,7 +29,7 @@ class HttpHeadersCheck(BaseCheck):
             async with aiohttp.ClientSession(connector=connector, timeout=timeout) as session:
                 # Fetch HTTPS response (with redirects)
                 https_headers, https_cookies, final_url = await self._fetch_https(session, target.url)
-                # Check HTTPS enforcement (http:// → https://)
+                # Check HTTPS enforcement (http:// to https://)
                 findings += await self._check_https_enforced(session, target, runkey)
                 if https_headers is not None:
                     findings += self._check_hsts(target, runkey, https_headers)
@@ -110,7 +110,7 @@ class HttpHeadersCheck(BaseCheck):
                 self.make_finding(
                     target, runkey, "https_enforced",
                     Status.ERROR, Severity.INFO,
-                    "Could not check HTTP→HTTPS redirect (connection error on http://)",
+                    "Could not check HTTP to HTTPS redirect (connection error on http://)",
                     evidence={"http_url": http_url},
                 )
             ]
@@ -497,7 +497,6 @@ class HttpHeadersCheck(BaseCheck):
 
         return findings
 
-
 def _header(headers: dict, name: str) -> str | None:
     """Case-insensitive header lookup."""
     name_lower = name.lower()
@@ -505,7 +504,6 @@ def _header(headers: dict, name: str) -> str | None:
         if k.lower() == name_lower:
             return v
     return None
-
 
 def _parse_set_cookie(raw: str) -> dict:
     """Parse a raw Set-Cookie header string into a dict of attributes."""
