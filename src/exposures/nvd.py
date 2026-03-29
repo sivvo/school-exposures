@@ -10,17 +10,16 @@ Rate limits (enforced here):
 
 Reference: https://nvd.nist.gov/developers/vulnerabilities
 Get a key from nvd.nist.gov
-
 """
+
 from __future__ import annotations
 
 import asyncio
 import time
 import urllib.parse
-from typing import Any
-
 import aiohttp
 import structlog
+from typing import Any
 
 logger = structlog.get_logger(__name__)
 
@@ -28,7 +27,7 @@ NVD_BASE = "https://services.nvd.nist.gov/rest/json/cves/2.0"
 
 # Map our detected product names (lowercase) to NVD CPE vendor:product strings.
 # Add entries here when new products are detected in the environment.
-# TODO since the NVD data can be poor quality, this is both a maintenance hassle
+# TODO: since the NVD data can be poor quality, this is both a maintenance hassle
 # and probably quite low value. THINK ABOUT DELETING!!
 CPE_MAP: dict[str, str] = {
     "apache":           "apache:http_server",
@@ -58,6 +57,8 @@ CPE_MAP: dict[str, str] = {
 # Medium is excluded — NVD CPE data quality means medium CVEs produce too many
 # false positives at scale (wrong OS, wrong deployment mode, overly broad CPE
 # ranges). Only high/critical are reliable enough to action across 24k schools.
+# Even then, vulns don't take things like the OS into account meaning
+# we still need to be careful about false positives.
 _SEVERITY_INCLUDE = {"high", "critical"}
 
 # Map NVD severity string to our Severity enum value
