@@ -24,11 +24,6 @@ RISKY_PORTS: dict[int, tuple[str, Severity, str]] = {
     22: ("ssh_exposed", Severity.INFO, "SSH exposed to internet on port 22"),
 }
 
-# Cloud provider ASN keywords that indicate unexpected hosting
-CLOUD_ASN_KEYWORDS: list[str] = [
-    "AMAZON", "MICROSOFT", "GOOGLE", "DIGITALOCEAN", "LINODE",
-    "VULTR", "HETZNER", "OVH", "ALIBABA", "ORACLE",
-]
 
 class CensysPortsCheck(BaseCheck):
     name = "censys_ports"
@@ -130,24 +125,6 @@ class CensysPortsCheck(BaseCheck):
                     )
                 )
 
-            # Shadow IT: unexpected cloud provider ASN
-            # TODO: validate this check - cursory review of the findings for a run didn't seem reliable
-            asn_desc = port_info.get("asn_description", "").upper()
-            if asn_desc:
-                for keyword in CLOUD_ASN_KEYWORDS:
-                    if keyword in asn_desc:
-                        shadow_key = f"shadow_it:{ip}"
-                        if shadow_key not in reported_checks:
-                            reported_checks.add(shadow_key)
-                            findings.append(
-                                self.make_finding(
-                                    target, runkey, "shadow_it_indicator",
-                                    Status.WARN, Severity.MEDIUM,
-                                    f"Host {ip} is hosted on a cloud provider ASN: {asn_desc}",
-                                    evidence={"ip": ip, "asn_description": asn_desc},
-                                )
-                            )
-                        break
 
         return findings
 
