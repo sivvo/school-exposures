@@ -135,11 +135,8 @@ class CensysPortsCheck(BaseCheck):
         except ImportError:
             raise RuntimeError("censys package is not installed")
 
-        import os
-        os.environ["CENSYS_API_ID"] = self._cfg.api_id
-        os.environ["CENSYS_API_SECRET"] = self._cfg.api_secret
-
-        h = CensysHosts()
+        # Pass credentials directly to constructor (avoid writing to os.environ)
+        h = CensysHosts(api_id=self._cfg.api_id, api_secret=self._cfg.api_secret)
         query = f"services.tls.certificates.leaf_data.names: {domain}"
         results: list[dict] = []
         try:
