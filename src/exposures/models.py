@@ -44,6 +44,11 @@ class Finding(BaseModel):
     severity: Severity
     detail: str
     evidence: dict[str, Any] = {}
+    la_name: str = ""
+    region: str = ""
+    urn: str = ""
+    school_type: str = ""
+    phase: str = ""
     timestamp: datetime | None = None
 
     def model_post_init(self, __context: Any) -> None:
@@ -66,6 +71,12 @@ class ScanTarget(BaseModel):
     business_unit: str
     domain: str  # registered domain via tldextract
     ip_addresses: list[str] = []
+    # GIAS / enrichment metadata (optional — populated from CSV extra columns or GIAS enrichment)
+    urn: str = ""
+    la_name: str = ""
+    region: str = ""
+    school_type: str = ""
+    phase: str = ""
 
 
 class RunSummary(BaseModel):
