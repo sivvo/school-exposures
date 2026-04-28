@@ -43,6 +43,11 @@ class BaseCheck(ABC):
             severity=severity,
             detail=detail,
             evidence=evidence or {},
+            la_name=target.la_name,
+            region=target.region,
+            urn=target.urn,
+            school_type=target.school_type,
+            phase=target.phase,
         )
 
     def make_error(
