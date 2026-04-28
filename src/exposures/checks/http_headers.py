@@ -91,8 +91,12 @@ class HttpHeadersCheck(BaseCheck):
                     if resp.status in (301, 302, 303, 307, 308):
                         location = resp.headers.get("Location", "")
                         if location:
-                            # Resolve relative redirects
-                            if location.startswith("/"):
+                            # Resolve relative and protocol-relative redirects
+                            if location.startswith("//"):
+                                # Protocol-relative — inherit current scheme
+                                p = urlparse(current_url)
+                                location = f"{p.scheme}:{location}"
+                            elif location.startswith("/"):
                                 p = urlparse(current_url)
                                 location = urlunparse(p._replace(path=location, query="", fragment=""))
                             current_url = location
@@ -233,7 +237,7 @@ class HttpHeadersCheck(BaseCheck):
             findings.append(
                 self.make_finding(
                     target, runkey, "csp_present",
-                    Status.FAIL, Severity.HIGH,
+                    Status.FAIL, Severity.MEDIUM,
                     "Content-Security-Policy header is missing",
                 )
             )
@@ -283,6 +287,42 @@ class HttpHeadersCheck(BaseCheck):
                     target, runkey, "csp_unsafe_eval",
                     Status.PASS, Severity.INFO,
                     "CSP does not contain 'unsafe-eval'",
+                )
+            )
+
+        # TASK-014: CSP depth analysis — wildcard, missing directives, data: URIs
+        # Wildcard default-src
+        if re.search(r"default-src\s+['\"]?\*['\"]?", csp_lower):
+            findings.append(
+                self.make_finding(
+                    target, runkey, "csp_wildcard",
+                    Status.FAIL, Severity.HIGH,
+                    "CSP uses 'default-src *' which allows loading resources from any origin",
+                    evidence={"csp_snippet": csp_value[:300]},
+                )
+            )
+
+        # Extract directive names
+        directives = {d.strip().split()[0].lower() for d in csp_value.split(";") if d.strip()}
+        if "default-src" not in directives and "script-src" not in directives:
+            findings.append(
+                self.make_finding(
+                    target, runkey, "csp_missing_directive",
+                    Status.WARN, Severity.MEDIUM,
+                    "CSP is missing both 'default-src' and 'script-src' directives — scripts are unrestricted",
+                    evidence={"present_directives": sorted(directives)},
+                )
+            )
+
+        # data: URI in dangerous directive contexts
+        if (re.search(r"script-src[^;]*\bdata:", csp_lower) or
+                re.search(r"object-src[^;]*\bdata:", csp_lower)):
+            findings.append(
+                self.make_finding(
+                    target, runkey, "csp_data_uri",
+                    Status.FAIL, Severity.MEDIUM,
+                    "CSP allows 'data:' URIs in script-src or object-src — XSS vector",
+                    evidence={"csp_snippet": csp_value[:300]},
                 )
             )
 
