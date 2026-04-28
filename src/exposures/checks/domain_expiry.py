@@ -97,7 +97,7 @@ class DomainExpiryCheck(BaseCheck):
     async def _lookup(
         self, domain: str, target: ScanTarget, runkey: str
     ) -> list[Finding]:
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         try:
             async with self._sem:
                 result = await loop.run_in_executor(None, _whois_lib.whois, domain)
