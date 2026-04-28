@@ -28,6 +28,7 @@ class ConcurrencyConfig(BaseModel):
     dns_workers: int = 500
     tls_workers: int = 50
     censys_qps: int = 10
+    port_scan_workers: int = 200
     request_timeout_s: int = 15
     connect_timeout_s: int = 5
 
@@ -72,11 +73,13 @@ class SafeBrowsingCheckConfig(BaseModel):
 class ChecksConfig(BaseModel):
     enabled: list[str] = [
         "http_headers",
+        "mixed_content",
         "tls",
         "dns_records",
         "email_security",
         "components",
         "censys_ports",
+        "port_scan",
         "insecure_services",
         "open_redirect",
         "cert_transparency",
@@ -84,6 +87,7 @@ class ChecksConfig(BaseModel):
         "domain_expiry",
         "safe_browsing",
         "dnsbl",
+        "subdomain_enum",
     ]
     http_headers: HttpHeadersCheckConfig = Field(default_factory=HttpHeadersCheckConfig)
     tls: TLSCheckConfig = Field(default_factory=TLSCheckConfig)
