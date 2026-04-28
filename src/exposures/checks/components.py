@@ -5,15 +5,14 @@ Tier 2: Well-known path probing (config: check_well_known_paths).
 CVE correlation: hardcoded minimal known-vulnerable version table.
 """
 from __future__ import annotations
-
-import asyncio
-import re
-import aiohttp
 from typing import Any
 from urllib.parse import urljoin, urlparse
 from ..models import CheckCategory, Finding, ScanTarget, Severity, Status
 from ..nvd import NVDClient, NVD_SEVERITY_MAP
 from .base import BaseCheck
+import asyncio
+import re
+import aiohttp
 
 # Known vulnerable version table
 # (product_lower -> list of (max_version_exclusive, severity, description))
@@ -132,6 +131,108 @@ WELL_KNOWN_PATHS: list[dict] = [
         "severity": Severity.HIGH,
         "detail": "phpinfo() page is publicly accessible (test.php) — PHP configuration exposed",
     },
+    {
+        "path": "/phpmyadmin/",
+        "check_name": "admin_interface_exposed",
+        "body_pattern": r"phpMyAdmin|phpmyadmin",
+        "severity": Severity.CRITICAL,
+        "detail": "phpMyAdmin database admin interface is publicly accessible",
+    },
+    {
+        "path": "/pma/",
+        "check_name": "admin_interface_exposed",
+        "body_pattern": r"phpMyAdmin|phpmyadmin",
+        "severity": Severity.CRITICAL,
+        "detail": "phpMyAdmin (at /pma/) database admin interface is publicly accessible",
+    },
+    {
+        "path": "/mysql/",
+        "check_name": "admin_interface_exposed",
+        "body_pattern": r"phpMyAdmin|phpmyadmin",
+        "severity": Severity.CRITICAL,
+        "detail": "phpMyAdmin (at /mysql/) database admin interface is publicly accessible",
+    },
+    {
+        "path": "/cpanel",
+        "check_name": "admin_interface_exposed",
+        "body_pattern": r"cPanel|cpanel",
+        "severity": Severity.CRITICAL,
+        "detail": "cPanel web hosting control panel is publicly accessible",
+    },
+    {
+        "path": "/grafana/",
+        "check_name": "admin_interface_exposed",
+        "body_pattern": r"Grafana",
+        "severity": Severity.HIGH,
+        "detail": "Grafana monitoring dashboard is publicly accessible",
+    },
+    {
+        "path": "/kibana/",
+        "check_name": "admin_interface_exposed",
+        "body_pattern": r"Kibana|kibana",
+        "severity": Severity.HIGH,
+        "detail": "Kibana analytics interface is publicly accessible — log data may be exposed",
+    },    
+    {
+        "path": "/sims/",
+        "check_name": "mis_internet_facing",
+        "body_pattern": r"SIMS|Capita|sims\.net",
+        "severity": Severity.CRITICAL,
+        "detail": "SIMS school management system login appears internet-accessible — pupil/safeguarding data at risk",
+    },
+    {
+        "path": "/bromcom/",
+        "check_name": "mis_internet_facing",
+        "body_pattern": r"Bromcom|bromcom",
+        "severity": Severity.CRITICAL,
+        "detail": "Bromcom MIS login appears internet-accessible — pupil/safeguarding data at risk",
+    },
+    {
+        "path": "/arbor/",
+        "check_name": "mis_internet_facing",
+        "body_pattern": r"Arbor|arbor\.sc",
+        "severity": Severity.CRITICAL,
+        "detail": "Arbor MIS login appears internet-accessible — pupil/safeguarding data at risk",
+    },
+    {
+        "path": "/SchoolPortal/",
+        "check_name": "mis_internet_facing",
+        "body_pattern": r"SchoolPortal|Civica",
+        "severity": Severity.CRITICAL,
+        "detail": "Civica SchoolPortal appears internet-accessible — pupil/safeguarding data at risk",
+    },
+    {
+        "path": "/wp-json/wp/v2/",
+        "check_name": "wordpress_rest_api_exposed",
+        "body_pattern": r'"namespace"\s*:\s*"wp/v2"',
+        "severity": Severity.MEDIUM,
+        "detail": "WordPress REST API is publicly accessible — user enumeration and plugin detection possible",
+        "status": Status.WARN,
+    },
+    {
+        "path": "/wp-content/plugins/contact-form-7/readme.txt",
+        "check_name": "wordpress_plugin_cf7",
+        "body_pattern": r"Contact Form 7|contact-form-7",
+        "severity": Severity.INFO,
+        "detail": "Contact Form 7 WordPress plugin detected (version enumerable via readme.txt)",
+        "status": Status.INFO,
+    },
+    {
+        "path": "/wp-content/plugins/woocommerce/readme.txt",
+        "check_name": "wordpress_plugin_woocommerce",
+        "body_pattern": r"WooCommerce",
+        "severity": Severity.INFO,
+        "detail": "WooCommerce WordPress plugin detected (version enumerable via readme.txt)",
+        "status": Status.INFO,
+    },
+    {
+        "path": "/wp-content/plugins/elementor/readme.txt",
+        "check_name": "wordpress_plugin_elementor",
+        "body_pattern": r"Elementor",
+        "severity": Severity.INFO,
+        "detail": "Elementor WordPress plugin detected (version enumerable via readme.txt)",
+        "status": Status.INFO,
+    },
 ]
 
 class ComponentsCheck(BaseCheck):
@@ -173,6 +274,8 @@ class ComponentsCheck(BaseCheck):
                 if self._cfg.check_well_known_paths:
                     path_findings = await self._check_well_known_paths(session, target, runkey)
                     findings += path_findings
+                    
+                    findings += await self._check_wordpress_plugins(session, target, runkey, findings)
 
                 # robots.txt
                 findings += await self._check_robots_txt(session, target, runkey)
@@ -303,9 +406,9 @@ class ComponentsCheck(BaseCheck):
                 ) as resp:
                     if resp.status != 200:
                         return []
-                    # Read a limited body
-                    body = await resp.text(errors="replace")
-                    body_preview = body[:500]
+                    # Read only as much as needed for pattern matching
+                    raw = await resp.content.read(500)
+                    body_preview = raw.decode("utf-8", errors="replace")
             except Exception:
                 return []
 
@@ -327,6 +430,89 @@ class ComponentsCheck(BaseCheck):
             )
         ]
     
+    async def _check_wordpress_plugins(
+        self,
+        session: aiohttp.ClientSession,
+        target: ScanTarget,
+        runkey: str,
+        all_findings: list,
+    ) -> list:
+        """If WordPress is detected, check known vulnerable plugin versions."""
+        is_wordpress = any(
+            f.check_name in ("wordpress_detected", "wordpress_admin_accessible",
+                             "wordpress_rest_api_exposed", "wordpress_plugin_cf7",
+                             "wordpress_plugin_woocommerce", "wordpress_plugin_elementor")
+            for f in all_findings
+        )
+        if not is_wordpress:
+            return []
+
+        _PLUGIN_VERSIONS: list[dict] = [
+            {
+                "slug": "contact-form-7",
+                "check_name": "wordpress_plugin_cf7",
+                "readme_path": "/wp-content/plugins/contact-form-7/readme.txt",
+                "vulnerable_below": (5, 8, 0),
+                "cve_hint": "CF7 < 5.8 has known CSRF/XSS vulnerabilities",
+            },
+            {
+                "slug": "woocommerce",
+                "check_name": "wordpress_plugin_woocommerce",
+                "readme_path": "/wp-content/plugins/woocommerce/readme.txt",
+                "vulnerable_below": (8, 0, 0),
+                "cve_hint": "WooCommerce < 8.0 has known SQL injection and XSS vulnerabilities",
+            },
+            {
+                "slug": "elementor",
+                "check_name": "wordpress_plugin_elementor",
+                "readme_path": "/wp-content/plugins/elementor/readme.txt",
+                "vulnerable_below": (3, 14, 0),
+                "cve_hint": "Elementor < 3.14 has known XSS vulnerabilities",
+            },
+        ]
+
+        vuln_findings = []
+        for plugin in _PLUGIN_VERSIONS:
+            full_url = urljoin(target.url.rstrip("/") + "/", plugin["readme_path"].lstrip("/"))
+            async with self._semaphore:
+                try:
+                    async with session.get(
+                        full_url, allow_redirects=False,
+                        headers={"User-Agent": "CyberExposureScanner/1.0"},
+                    ) as resp:
+                        if resp.status != 200:
+                            continue
+                        raw = await resp.content.read(2000)
+                        body = raw.decode("utf-8", errors="replace")
+                except Exception:
+                    continue
+
+            # Extract Stable tag (version)
+            m = re.search(r"Stable\s+tag\s*:\s*([\d.]+)", body, re.IGNORECASE)
+            if not m:
+                continue
+            version_str = m.group(1)
+            version_tuple = _parse_version_tuple(version_str)
+            if not version_tuple:
+                continue
+
+            if version_tuple < plugin["vulnerable_below"]:
+                vuln_findings.append(
+                    self.make_finding(
+                        target, runkey, "component_vulnerable_version",
+                        Status.FAIL, Severity.HIGH,
+                        f"WordPress plugin '{plugin['slug']}' version {version_str} is outdated: {plugin['cve_hint']}",
+                        evidence={
+                            "product": plugin["slug"],
+                            "detected_version": version_str,
+                            "vulnerable_below": ".".join(str(v) for v in plugin["vulnerable_below"]),
+                            "readme_url": full_url,
+                        },
+                    )
+                )
+
+        return vuln_findings
+
     async def _check_robots_txt(
         self,
         session: aiohttp.ClientSession,
