@@ -198,7 +198,7 @@ class DNSRecordsCheck(BaseCheck):
                 return [
                     self.make_finding(
                         target, runkey, "dns_dnssec",
-                        Status.WARN, Severity.MEDIUM,
+                        Status.WARN, Severity.LOW,
                         "No DNSKEY record found — DNSSEC may not be configured",
                         evidence={"domain": domain},
                     )
