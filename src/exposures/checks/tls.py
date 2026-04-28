@@ -32,7 +32,7 @@ class TLSCheck(BaseCheck):
 
         try:
             async with self._semaphore:
-                cert_data, ssl_version, ssl_error = await asyncio.get_event_loop().run_in_executor(
+                cert_data, ssl_version, ssl_error = await asyncio.get_running_loop().run_in_executor(
                     None, _connect_and_get_cert, hostname, port
                 )
         except Exception as exc:
@@ -169,6 +169,9 @@ class TLSCheck(BaseCheck):
         # Protocol version checks
         findings += await self._check_weak_protocols(target, runkey, hostname, port)
 
+        # Deprecated cipher suite checks
+        findings += await self._check_weak_ciphers(target, runkey, hostname, port)
+
         #  Minimum protocol info 
         min_proto = ssl_version or "unknown"
         findings.append(
@@ -195,7 +198,7 @@ class TLSCheck(BaseCheck):
         findings: list[Finding] = []
 
         # Test TLS 1.0
-        tls10_accepted, _ = await asyncio.get_event_loop().run_in_executor(
+        tls10_accepted, _ = await asyncio.get_running_loop().run_in_executor(
             None, _test_protocol, hostname, port, ssl.TLSVersion.TLSv1
         )
         if tls10_accepted:
@@ -209,7 +212,7 @@ class TLSCheck(BaseCheck):
             )
 
         # Test TLS 1.1
-        tls11_accepted, _ = await asyncio.get_event_loop().run_in_executor(
+        tls11_accepted, _ = await asyncio.get_running_loop().run_in_executor(
             None, _test_protocol, hostname, port, ssl.TLSVersion.TLSv1_1
         )
         if tls11_accepted:
@@ -228,6 +231,50 @@ class TLSCheck(BaseCheck):
                     target, runkey, "tls_weak_protocol",
                     Status.PASS, Severity.INFO,
                     "Server does not accept TLS 1.0 or TLS 1.1",
+                )
+            )
+
+        return findings
+
+    async def _check_weak_ciphers(
+        self,
+        target: ScanTarget,
+        runkey: str,
+        hostname: str,
+        port: int,
+    ) -> list[Finding]:
+        """Test whether the server accepts deprecated / broken cipher families."""
+        findings: list[Finding] = []
+
+        _CIPHER_TESTS: list[tuple[str, str, Severity, str]] = [
+            ("RC4",    "RC4:RC4-SHA:RC4-MD5",                   Severity.CRITICAL, "Server accepts RC4 cipher — broken, vulnerable to decryption (CVE-2013-2566)"),
+            ("3DES",   "DES-CBC3-SHA:EDH-RSA-DES-CBC3-SHA",     Severity.HIGH,     "Server accepts 3DES (SWEET32, CVE-2016-2183) — birthday attack on long-lived sessions"),
+            ("NULL",   "NULL:eNULL:aNULL",                       Severity.CRITICAL, "Server accepts NULL cipher — traffic is unencrypted"),
+            ("EXPORT", "EXPORT:EXP:EXP-RC4-MD5:EXP-EDH-RSA-DES-CBC-SHA", Severity.CRITICAL, "Server accepts EXPORT-grade ciphers (FREAK / Logjam)"),
+        ]
+
+        any_weak = False
+        for name, cipher_str, severity, detail in _CIPHER_TESTS:
+            accepted, _ = await asyncio.get_running_loop().run_in_executor(
+                None, _test_cipher, hostname, port, cipher_str
+            )
+            if accepted:
+                any_weak = True
+                findings.append(
+                    self.make_finding(
+                        target, runkey, "tls_weak_cipher",
+                        Status.FAIL, severity,
+                        detail,
+                        evidence={"cipher_family": name, "hostname": hostname},
+                    )
+                )
+
+        if not any_weak:
+            findings.append(
+                self.make_finding(
+                    target, runkey, "tls_weak_cipher",
+                    Status.PASS, Severity.INFO,
+                    "Server does not accept RC4, 3DES, NULL, or EXPORT-grade ciphers",
                 )
             )
 
@@ -257,12 +304,6 @@ class TLSCheck(BaseCheck):
                 "Certificate does not contain embedded SCT extension (Certificate Transparency)",
             )
         ]
-
-
-# ---------------------------------------------------------------------------
-# Low-level helpers (run in executor to avoid blocking event loop)
-# ---------------------------------------------------------------------------
-
 def _connect_and_get_cert(
     hostname: str, port: int
 ) -> tuple[bytes | None, str | None, str | None]:
@@ -300,10 +341,46 @@ def _test_protocol(
         return False, str(exc)
 
 
+def _test_cipher(
+    hostname: str, port: int, cipher_str: str
+) -> tuple[bool, str | None]:
+    """Return (accepted, error) for the given cipher string.
+
+    Constrains the connection to TLS 1.2 max so that TLS 1.3 ciphers (which
+    cannot be filtered via set_ciphers) don't cause false positives.  After
+    handshake, verifies the server actually negotiated one of the requested
+    cipher families rather than falling back to something strong.
+    """
+    try:
+        ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+        ctx.check_hostname = False
+        ctx.verify_mode = ssl.CERT_NONE
+        ctx.maximum_version = ssl.TLSVersion.TLSv1_2
+        ctx.set_ciphers(cipher_str)
+        with socket.create_connection((hostname, port), timeout=10) as sock:
+            with ctx.wrap_socket(sock, server_hostname=hostname) as ssock:
+                negotiated = ssock.cipher()
+                if negotiated is None:
+                    return False, None
+                # negotiated[0] is the cipher name e.g. "RC4-SHA", "NULL-SHA"
+                # Verify the negotiated cipher is actually one we consider weak,
+                # not a strong fallback the server chose despite our preference.
+                name = negotiated[0].upper()
+                weak_families = [s.upper() for s in cipher_str.replace(":", " ").split()]
+                if any(fam in name for fam in weak_families if len(fam) > 3):
+                    return True, None
+                return False, None
+    except ssl.SSLError:
+        return False, None
+    except OSError:
+        return False, None
+    except Exception as exc:
+        return False, str(exc)
+
+
 def _extract_hostname(url: str) -> str:
     from urllib.parse import urlparse
     return urlparse(url).hostname or url
-
 
 def _extract_port(url: str) -> int:
     from urllib.parse import urlparse
@@ -339,10 +416,8 @@ def _cert_subject_str(cert: x509.Certificate) -> str:
 def _cert_issuer_str(cert: x509.Certificate) -> str:
     return cert.issuer.rfc4514_string()
 
-
 def _is_self_signed(cert: x509.Certificate) -> bool:
     return cert.issuer == cert.subject
-
 
 def _check_hostname_match(cert: x509.Certificate, hostname: str) -> bool:
     """Check if hostname matches the cert's SANs or CN."""
