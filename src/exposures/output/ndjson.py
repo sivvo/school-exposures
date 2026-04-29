@@ -4,15 +4,15 @@ Writes one JSON line per finding to {output_dir}/{runkey}.ndjson.
 Writes a summary JSON file at end of run.
 """
 from __future__ import annotations
-
-import json
 from pathlib import Path
 from typing import Any
-
+from ..models import Finding, RunSummary
+import json
+import os
 import aiofiles
 import structlog
 
-from ..models import Finding, RunSummary
+
 
 logger = structlog.get_logger(__name__)
 
@@ -28,8 +28,9 @@ class NDJSONWriter:
         self._count = 0
 
     async def __aenter__(self) -> "NDJSONWriter":
-        self._output_dir.mkdir(parents=True, exist_ok=True)
-        self._file = await aiofiles.open(self._findings_path, mode="w", encoding="utf-8")
+        self._output_dir.mkdir(parents=True, exist_ok=True)        
+        fd = os.open(self._findings_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        self._file = await aiofiles.open(fd, mode="w", encoding="utf-8")
         logger.info("ndjson_writer_opened", path=str(self._findings_path))
         return self
 
