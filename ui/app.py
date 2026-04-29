@@ -9,16 +9,21 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import base64
 import csv
 import io
 import json
+import os
+import secrets
 import sqlite3
 import uvicorn
+from collections import defaultdict
 from datetime import datetime, timezone
 from pathlib import Path
+from time import time
 from typing import Any
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Query, Request, Response
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from pydantic import BaseModel
 
@@ -57,6 +62,57 @@ CATEGORY_TO_GROUP: dict[str, str] = {
     for cat in cats
 }
 
+# Remediation guidance per check_name — links to NCSC or DfE guidance pages
+# TODO: some (all) of these links arne't working when called from the finding page
+REMEDIATION: dict[str, dict[str, str]] = {
+    # HTTP headers
+    "hsts_present":            {"title": "Enable HSTS",              "url": "https://www.ncsc.gov.uk/collection/web-security-for-administrators/using-tls/using-http-strict-transport-security-hsts"},
+    "hsts_max_age":            {"title": "Increase HSTS max-age",    "url": "https://www.ncsc.gov.uk/collection/web-security-for-administrators/using-tls/using-http-strict-transport-security-hsts"},
+    "csp_present":             {"title": "Add a Content Security Policy", "url": "https://www.ncsc.gov.uk/collection/web-security-for-administrators/server-security/content-security-policy"},
+    "csp_unsafe_inline":       {"title": "Remove unsafe-inline from CSP", "url": "https://www.ncsc.gov.uk/collection/web-security-for-administrators/server-security/content-security-policy"},
+    "csp_unsafe_eval":         {"title": "Remove unsafe-eval from CSP", "url": "https://www.ncsc.gov.uk/collection/web-security-for-administrators/server-security/content-security-policy"},
+    "x_frame_options":         {"title": "Add X-Frame-Options header", "url": "https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/X-Frame-Options"},
+    "x_content_type_options":  {"title": "Add X-Content-Type-Options: nosniff", "url": "https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/X-Content-Type-Options"},
+    "https_enforced":          {"title": "Redirect HTTP to HTTPS",    "url": "https://www.ncsc.gov.uk/collection/web-security-for-administrators/using-tls/redirect-http-to-https"},
+    "cookie_security":         {"title": "Secure cookie flags",       "url": "https://developer.mozilla.org/en-US/docs/Web/HTTP/Cookies#security"},
+    "open_redirect":           {"title": "Fix open redirect",         "url": "https://cheatsheetseries.owasp.org/cheatsheets/Unvalidated_Redirects_and_Forwards_Cheat_Sheet.html"},
+    "mixed_content_active":    {"title": "Fix active mixed content",  "url": "https://developer.chrome.com/docs/devtools/console/reference/#mixed-content"},
+    "mixed_content_passive":   {"title": "Fix passive mixed content", "url": "https://developer.chrome.com/docs/devtools/console/reference/#mixed-content"},
+    # TLS
+    "tls_expired":             {"title": "Renew TLS certificate",     "url": "https://www.ncsc.gov.uk/collection/web-security-for-administrators/using-tls"},
+    "tls_expiry_days":         {"title": "Renew TLS certificate",     "url": "https://www.ncsc.gov.uk/collection/web-security-for-administrators/using-tls"},
+    "tls_hostname_mismatch":   {"title": "Fix certificate hostname mismatch", "url": "https://www.ncsc.gov.uk/collection/web-security-for-administrators/using-tls"},
+    "tls_self_signed":         {"title": "Replace self-signed certificate", "url": "https://www.ncsc.gov.uk/collection/web-security-for-administrators/using-tls"},
+    "tls_weak_protocol":       {"title": "Disable TLS 1.0 / 1.1",    "url": "https://www.ncsc.gov.uk/guidance/tls-external-facing-services"},
+    # DNS
+    "dns_caa_record":          {"title": "Add CAA DNS record",        "url": "https://www.ncsc.gov.uk/blog-post/protecting-your-users-from-fraudulent-certificates"},
+    "dns_dnssec":              {"title": "Enable DNSSEC",             "url": "https://www.ncsc.gov.uk/guidance/introduction-to-dns-security"},
+    "dns_zone_transfer":       {"title": "Disable DNS zone transfer", "url": "https://www.ncsc.gov.uk/guidance/introduction-to-dns-security"},
+    "dns_dangling_cname":      {"title": "Fix dangling CNAME (subdomain takeover risk)", "url": "https://www.ncsc.gov.uk/news/subdomain-takeover-news"},
+    # Email
+    "spf_present":             {"title": "Add SPF record",            "url": "https://www.ncsc.gov.uk/collection/email-security-and-anti-spoofing"},
+    "spf_all_mechanism":       {"title": "Tighten SPF -all policy",   "url": "https://www.ncsc.gov.uk/collection/email-security-and-anti-spoofing/anti-spoofing"},
+    "dmarc_present":           {"title": "Add DMARC record",          "url": "https://www.ncsc.gov.uk/collection/email-security-and-anti-spoofing/dmarc"},
+    "dmarc_policy":            {"title": "Enforce DMARC policy",      "url": "https://www.ncsc.gov.uk/collection/email-security-and-anti-spoofing/dmarc"},
+    # Components
+    "git_exposed":             {"title": "Block access to .git directory", "url": "https://owasp.org/www-community/Source_Code_Disclosure"},
+    "env_file_exposed":        {"title": "Block access to .env file", "url": "https://owasp.org/www-community/Source_Code_Disclosure"},
+    "phpinfo_exposed":         {"title": "Remove phpinfo() page",     "url": "https://www.php.net/manual/en/function.phpinfo.php"},
+    "apache_server_status_exposed": {"title": "Restrict Apache server-status", "url": "https://httpd.apache.org/docs/2.4/mod/mod_status.html"},
+    "component_vulnerable_version": {"title": "Update vulnerable component", "url": "https://www.ncsc.gov.uk/guidance/vulnerability-management"},
+    # Network
+    "insecure_port_ftp":       {"title": "Disable FTP — use SFTP",   "url": "https://www.ncsc.gov.uk/guidance/using-ftp-securely"},
+    "insecure_port_telnet":    {"title": "Disable Telnet — use SSH",  "url": "https://www.ncsc.gov.uk/guidance/ssh-usage-risk-and-mitigation"},
+    "admin_port_rdp":          {"title": "Restrict RDP access",       "url": "https://www.ncsc.gov.uk/guidance/remote-desktop-services"},
+    "database_port_exposed":   {"title": "Block database port from internet", "url": "https://www.ncsc.gov.uk/guidance/network-access-controls"},
+    # Domain
+    "domain_expiry":           {"title": "Renew domain registration", "url": "https://www.nominet.uk/"},
+    # Storage
+    "cloud_storage_public_listing": {"title": "Restrict cloud storage bucket", "url": "https://www.ncsc.gov.uk/guidance/cloud-security-guidance"},
+    "cloud_storage_unclaimed_bucket": {"title": "Claim or remove bucket CNAME", "url": "https://www.ncsc.gov.uk/news/subdomain-takeover-news"},
+}
+
+
 # Risk score
 # also set in index.html in the riskScore() JS function
 # TODO - refactor to just one
@@ -84,13 +140,20 @@ def _risk_score(c: int, h: int, m: int) -> int:
 # the reports are loading from the ndjson output files - the
 # runkey comes in handy here for differntiating between runs
 
+_EVIDENCE_CACHE_MAX = 5
 _evidence_cache: dict[str, dict[tuple, dict]] = {}
+_evidence_cache_order: list[str] = []
 
 def _load_evidence(runkey: str) -> dict[tuple, dict]:
     if runkey in _evidence_cache:
         return _evidence_cache[runkey]
     index: dict[tuple, dict] = {}
     ndjson_path = OUTPUT_DIR / f"{runkey}.ndjson"
+    # Validate path stays within OUTPUT_DIR
+    try:
+        ndjson_path.resolve().relative_to(OUTPUT_DIR.resolve())
+    except ValueError:
+        return index
     if ndjson_path.exists():
         with open(ndjson_path) as f:
             for line in f:
@@ -104,7 +167,12 @@ def _load_evidence(runkey: str) -> dict[tuple, dict]:
                     index[key] = rec.get("evidence", {})
                 except json.JSONDecodeError:
                     continue
+    # Evict oldest entry when cache is full
+    if len(_evidence_cache) >= _EVIDENCE_CACHE_MAX and _evidence_cache_order:
+        oldest = _evidence_cache_order.pop(0)
+        _evidence_cache.pop(oldest, None)
     _evidence_cache[runkey] = index
+    _evidence_cache_order.append(runkey)
     return index
 
 _SUPPRESSIONS_SCHEMA = """
@@ -116,6 +184,17 @@ CREATE TABLE IF NOT EXISTS suppressions (
     created_at  TEXT NOT NULL,
     UNIQUE(url, check_name)
 );
+
+CREATE TABLE IF NOT EXISTS notes (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    url         TEXT NOT NULL,
+    body        TEXT NOT NULL,
+    author      TEXT NOT NULL DEFAULT '',
+    created_at  TEXT NOT NULL,
+    updated_at  TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_notes_url ON notes (url);
 """
 
 def _db() -> sqlite3.Connection:
@@ -127,27 +206,156 @@ def _init_suppressions() -> None:
     with _db() as conn:
         conn.executescript(_SUPPRESSIONS_SCHEMA)
 
+def _init_suppressions_expiry() -> None:
+    """Add expires_at column to suppressions if missing (safe migration)"""
+    with _db() as conn:
+        try:
+            conn.execute("ALTER TABLE suppressions ADD COLUMN expires_at TEXT")
+        except sqlite3.OperationalError:
+            pass  # column already exists
+
+def _migrate_findings_schema() -> None:
+    """Add GIAS metadata and evidence columns to findings table if missing."""
+    new_cols = [
+        ("la_name",     "TEXT NOT NULL DEFAULT ''"),
+        ("region",      "TEXT NOT NULL DEFAULT ''"),
+        ("urn",         "TEXT NOT NULL DEFAULT ''"),
+        ("school_type", "TEXT NOT NULL DEFAULT ''"),
+        ("phase",       "TEXT NOT NULL DEFAULT ''"),
+        ("evidence",    "TEXT NOT NULL DEFAULT '{}'"),
+    ]
+    with _db() as conn:
+        for col_name, col_def in new_cols:
+            try:
+                conn.execute(f"ALTER TABLE findings ADD COLUMN {col_name} {col_def}")
+            except sqlite3.OperationalError:
+                pass  # column already exists
+
 _NOT_SUPPRESSED = """
     AND NOT EXISTS (
         SELECT 1 FROM suppressions s
         WHERE s.url = f.url AND s.check_name = f.check_name
+          AND (s.expires_at IS NULL OR s.expires_at > datetime('now'))
     )
 """
+
+# HTTP Basic Auth — set DASHBOARD_USERNAME / DASHBOARD_PASSWORD env vars
+# to enable. If DASHBOARD_PASSWORD is empty, auth is disabled (localhost use only).
+# NOT production safe
+_AUTH_USERNAME = os.environ.get("DASHBOARD_USERNAME", "admin")
+_AUTH_PASSWORD = os.environ.get("DASHBOARD_PASSWORD", "")
+
+_rl_store: dict[str, list[float]] = defaultdict(list)
+_RL_WINDOW = 60          # seconds
+_RL_READ_MAX   = 120     # read requests per minute per IP
+_RL_WRITE_MAX  = 15      # write (POST/DELETE) requests per minute per IP
+
+def _rate_limit_check(ip: str, max_req: int) -> bool:
+    """Return True if allowed, False if rate limited."""
+    now = time()
+    timestamps = _rl_store[ip]
+    timestamps[:] = [t for t in timestamps if now - t < _RL_WINDOW]
+    if len(timestamps) >= max_req:
+        return False
+    timestamps.append(now)
+    return True
 
 ####################################
 # App entries
 ####################################
- 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     _init_suppressions()
+    _init_suppressions_expiry()
+    _migrate_findings_schema()
     yield
 
 app = FastAPI(title="School Cyber Exposure", lifespan=lifespan)
 
+@app.middleware("http")
+async def security_middleware(request: Request, call_next):
+    """Combined auth + rate limiting middleware."""
+    client_ip = (request.client.host if request.client else "unknown")
+
+    # Rate limiting
+    is_write = request.method in ("POST", "DELETE", "PUT", "PATCH")
+    max_req = _RL_WRITE_MAX if is_write else _RL_READ_MAX
+    if not _rate_limit_check(f"{client_ip}:{request.method}", max_req):
+        return Response(
+            status_code=429,
+            content="Rate limit exceeded — try again shortly",
+            headers={"Retry-After": str(_RL_WINDOW)},
+        )
+
+    # HTTP Basic Auth when DASHBOARD_PASSWORD is set
+    if _AUTH_PASSWORD:
+        # Always serve index.html so the browser can show the auth dialog
+        if request.url.path not in ("/", "/favicon.ico"):
+            auth = request.headers.get("Authorization", "")
+            authorized = False
+            if auth.startswith("Basic "):
+                try:
+                    decoded = base64.b64decode(auth[6:]).decode("utf-8", errors="replace")
+                    username, _, password = decoded.partition(":")
+                    authorized = (
+                        secrets.compare_digest(username, _AUTH_USERNAME) and
+                        secrets.compare_digest(password, _AUTH_PASSWORD)
+                    )
+                except Exception:
+                    pass
+            if not authorized:
+                return Response(
+                    status_code=401,
+                    content="Unauthorized",
+                    headers={"WWW-Authenticate": 'Basic realm="School Cyber Exposure"'},
+                )
+
+    return await call_next(request)
+
+
 @app.get("/")
 def index() -> FileResponse:
     return FileResponse(INDEX_HTML)
+
+
+@app.get("/api/remediation")
+def get_remediation() -> dict[str, dict[str, str]]:
+    """Static map of check_name -> {title, url} for remediation guidance links."""
+    return REMEDIATION
+
+@app.get("/api/la-names")
+def list_la_names() -> list[str]:
+    """Return distinct non-empty la_names from the findings table, sorted alphabetically."""
+    conn = _db()
+    try:
+        rows = conn.execute(
+            "SELECT DISTINCT la_name FROM findings WHERE la_name != '' ORDER BY la_name"
+        ).fetchall()
+        conn.close()
+        return [r["la_name"] for r in rows]
+    except sqlite3.OperationalError:
+        conn.close()
+        return []
+
+
+@app.get("/api/domain-suffixes")
+def list_domain_suffixes() -> list[str]:
+    """Return distinct domain suffixes present in the findings table, sorted by frequency.
+    For country-code TLDs (2-char, e.g. .uk) returns the second-level suffix (e.g. .sch.uk,
+    .co.uk). For generic TLDs returns just the TLD (e.g. .com, .org).
+    """
+    conn = _db()
+    rows = conn.execute("SELECT DISTINCT url FROM findings").fetchall()
+    conn.close()
+    counts: dict[str, int] = {}
+    for row in rows:
+        host = row["url"].split("://", 1)[-1].split("/")[0].lower().rstrip(".")
+        parts = host.split(".")
+        if len(parts) >= 2:
+            tld = parts[-1]
+            suffix = ("." + ".".join(parts[-2:])) if len(tld) == 2 else ("." + tld)
+            counts[suffix] = counts.get(suffix, 0) + 1
+    return [s for s, _ in sorted(counts.items(), key=lambda x: -x[1])]
 
 
 @app.get("/api/runs")
@@ -165,14 +373,16 @@ _HIDE_NVD = "AND f.check_name != 'component_vulnerable_version'"
 
 @app.get("/api/table")
 def get_table(
-    runkey:   str  = Query(...),
-    search:   str  = Query(default=""),
-    sev:      str  = Query(default="all"),   # all | medium | high | critical
-    sort_col: str  = Query(default="risk"),  # url | risk
-    sort_dir: str  = Query(default="desc"),  # asc | desc
-    offset:   int  = Query(default=0,   ge=0),
-    limit:    int  = Query(default=100, le=500),
-    hide_nvd: bool = Query(default=False),
+    runkey:        str  = Query(...),
+    search:        str  = Query(default=""),
+    sev:           str  = Query(default="all"),   # all | medium | high | critical
+    sort_col:      str  = Query(default="risk"),  # url | risk
+    sort_dir:      str  = Query(default="desc"),  # asc | desc
+    offset:        int  = Query(default=0,   ge=0),
+    limit:         int  = Query(default=100, le=500),
+    hide_nvd:      bool = Query(default=False),
+    domain_suffix: str  = Query(default=""),  # e.g. ".sch.uk"
+    la_name:       str  = Query(default=""),  # filter by LA / region
 ) -> dict:
     conn = _db()
 
@@ -182,6 +392,13 @@ def get_table(
         raise HTTPException(status_code=404, detail=f"Run '{runkey}' not found")
 
     nvd_clause = _HIDE_NVD if hide_nvd else ""
+
+    # LA name filter clause
+    la_clause = ""
+    la_params: list = []
+    if la_name:
+        la_clause = "AND (CASE WHEN f.la_name != '' THEN f.la_name ELSE f.business_unit END) = ?"
+        la_params = [la_name]
 
     count_rows = conn.execute(
         f"""
@@ -193,15 +410,17 @@ def get_table(
         WHERE f.runkey = ? AND f.severity IN ('critical','high','medium')
           {_NOT_SUPPRESSED}
           {nvd_clause}
+          {la_clause}
         GROUP BY f.url
         """,
-        (runkey,),
+        (runkey, *la_params),
     ).fetchall()
 
+    all_urls_query = (
+        f"SELECT DISTINCT url FROM findings f WHERE runkey = ? {la_clause}"
+    )
     all_urls: set[str] = {
-        r["url"] for r in conn.execute(
-            "SELECT DISTINCT url FROM findings WHERE runkey = ?", (runkey,)
-        ).fetchall()
+        r["url"] for r in conn.execute(all_urls_query, (runkey, *la_params)).fetchall()
     }
 
     # include schools with no adverse findings - we have a "best" table as well as worst!
@@ -214,6 +433,13 @@ def get_table(
     if search:
         sl = search.lower()
         url_counts = {k: v for k, v in url_counts.items() if sl in k.lower()}
+
+    if domain_suffix:
+        ds = domain_suffix.lower()
+        url_counts = {k: v for k, v in url_counts.items()
+                      if k.lower().rstrip("/").endswith(ds) or
+                         f"/{ds}" in k.lower() or
+                         k.lower().split("://", 1)[-1].split("/")[0].endswith(ds)}
 
     if sev == "medium":
         url_counts = {k: v for k, v in url_counts.items() if v["c"]+v["h"]+v["m"] > 0}
@@ -390,15 +616,8 @@ def get_trends(urls: str = Query(default="")) -> dict:
         """,
         run_keys,
     ).fetchall()
-    conn.close()
 
-    # Build lookup: (url, runkey) -> count
-    counts: dict[tuple, int] = {}
-    for row in rows:
-        counts[(row["url"], row["runkey"])] = row["cnt"]
-
-    # list counts only for runs where they appeared (had any finding)    
-    conn = _db()
+    # list counts only for runs where they appeared (had any finding)
     presence_rows = conn.execute(
         f"""
         SELECT DISTINCT url, runkey FROM findings
@@ -407,6 +626,11 @@ def get_trends(urls: str = Query(default="")) -> dict:
         run_keys,
     ).fetchall()
     conn.close()
+
+    # Build lookup: (url, runkey) -> count
+    counts: dict[tuple, int] = {}
+    for row in rows:
+        counts[(row["url"], row["runkey"])] = row["cnt"]
 
     presence: dict[str, set[str]] = {}
     for row in presence_rows:
@@ -432,8 +656,7 @@ def get_trends(urls: str = Query(default="")) -> dict:
     return {"runs": run_keys, "data": data}
 
 
-# ── Detail ────────────────────────────────────────────────────────────────────
-
+###### Detail
 @app.get("/api/detail")
 def get_detail(
     runkey: str = Query(...),
@@ -536,32 +759,120 @@ def get_detail(
     return findings
 
 
-# ── Suppressions ──────────────────────────────────────────────────────────────
-
+# Suppressions
 class SuppressRequest(BaseModel):
-    url: str
+    url: str = ""
     check_name: str
     reason: str = ""
+    expires_days: int | None = None  # None = no expiry, positive int = expires in N days
+
+    def model_post_init(self, __context: Any) -> None:
+        if len(self.check_name) > 200:
+            raise ValueError("check_name too long")
+        if len(self.reason) > 1000:
+            raise ValueError("reason too long")
+        if self.url and len(self.url) > 2000:
+            raise ValueError("url too long")
+        if self.expires_days is not None and (self.expires_days < 1 or self.expires_days > 3650):
+            raise ValueError("expires_days must be between 1 and 3650")
+
+
+class BulkSuppressRequest(BaseModel):
+    runkey: str
+    check_name: str
+    reason: str = ""
+    expires_days: int | None = None
+
+    def model_post_init(self, __context: Any) -> None:
+        if len(self.check_name) > 200:
+            raise ValueError("check_name too long")
+        if len(self.reason) > 1000:
+            raise ValueError("reason too long")
+        if self.expires_days is not None and (self.expires_days < 1 or self.expires_days > 3650):
+            raise ValueError("expires_days must be between 1 and 3650")
+
+
+def _calc_expires_at(expires_days: int | None) -> str | None:
+    """Calculate ISO expiry timestamp from days offset, or None for no expiry."""
+    if expires_days is None:
+        return None
+    from datetime import timedelta
+    return (datetime.now(timezone.utc) + timedelta(days=expires_days)).isoformat()
+
 
 @app.post("/api/suppress", status_code=201)
 def create_suppression(req: SuppressRequest) -> dict:
+    if not req.url:
+        raise HTTPException(status_code=400, detail="url is required for single suppression")
     created_at = datetime.now(timezone.utc).isoformat()
+    expires_at = _calc_expires_at(req.expires_days)
     try:
         with _db() as conn:
             conn.execute(
-                "INSERT OR REPLACE INTO suppressions (url, check_name, reason, created_at) "
-                "VALUES (?, ?, ?, ?)",
-                (req.url, req.check_name, req.reason, created_at),
+                "INSERT OR REPLACE INTO suppressions (url, check_name, reason, created_at, expires_at) "
+                "VALUES (?, ?, ?, ?, ?)",
+                (req.url, req.check_name, req.reason, created_at, expires_at),
             )
             row = conn.execute(
                 "SELECT id FROM suppressions WHERE url = ? AND check_name = ?",
                 (req.url, req.check_name),
             ).fetchone()
         return {"id": row["id"], "url": req.url, "check_name": req.check_name,
-                "reason": req.reason, "created_at": created_at}
+                "reason": req.reason, "created_at": created_at, "expires_at": expires_at}
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc))
 
+
+@app.post("/api/suppress/bulk", status_code=201)
+def create_bulk_suppression(req: BulkSuppressRequest) -> dict:
+    """Suppress a check_name across all URLs that have it as a fail/warn in a given run."""
+    conn = _db()
+    run = conn.execute("SELECT runkey FROM runs WHERE runkey = ?", (req.runkey,)).fetchone()
+    if not run:
+        conn.close()
+        raise HTTPException(status_code=404, detail=f"Run '{req.runkey}' not found")
+
+    affected_urls = conn.execute(
+        """
+        SELECT DISTINCT url FROM findings
+        WHERE runkey = ? AND check_name = ? AND status IN ('fail','warn')
+        """,
+        (req.runkey, req.check_name),
+    ).fetchall()
+    conn.close()
+
+    if not affected_urls:
+        return {"inserted": 0, "check_name": req.check_name, "urls": []}
+
+    created_at = datetime.now(timezone.utc).isoformat()
+    expires_at = _calc_expires_at(req.expires_days)
+    urls = [r["url"] for r in affected_urls]
+    try:
+        with _db() as conn:
+            conn.executemany(
+                "INSERT OR REPLACE INTO suppressions (url, check_name, reason, created_at, expires_at) "
+                "VALUES (?, ?, ?, ?, ?)",
+                [(url, req.check_name, req.reason, created_at, expires_at) for url in urls],
+            )
+        return {"inserted": len(urls), "check_name": req.check_name, "urls": urls}
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@app.get("/api/suppress/stats")
+def get_suppression_stats() -> list[dict]:
+    """Count of active suppressions grouped by check_name."""
+    conn = _db()
+    rows = conn.execute(
+        """
+        SELECT check_name, COUNT(*) AS count
+        FROM suppressions
+        GROUP BY check_name
+        ORDER BY count DESC
+        """
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
 
 @app.delete("/api/suppress/{suppression_id}", status_code=200)
 def delete_suppression(suppression_id: int) -> dict:
@@ -585,7 +896,62 @@ def list_suppressions() -> list[dict]:
     return [dict(r) for r in rows]
 
 
-# ── Coverage ─────────────────────────────────────────────────────────────────
+#### Notes ###
+class NoteRequest(BaseModel):
+    url: str
+    body: str
+    author: str = ""
+
+    def model_post_init(self, __context: Any) -> None:
+        if not self.url:
+            raise ValueError("url is required")
+        if not self.body.strip():
+            raise ValueError("body is required")
+        if len(self.body) > 5000:
+            raise ValueError("note body too long (max 5000 chars)")
+        if len(self.author) > 200:
+            raise ValueError("author too long")
+
+
+@app.get("/api/notes")
+def get_notes(url: str = Query(...)) -> list[dict]:
+    """Fetch analyst notes for a school URL, newest first."""
+    conn = _db()
+    rows = conn.execute(
+        "SELECT * FROM notes WHERE url = ? ORDER BY created_at DESC",
+        (url,),
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+@app.post("/api/notes", status_code=201)
+def create_note(req: NoteRequest) -> dict:
+    now = datetime.now(timezone.utc).isoformat()
+    try:
+        with _db() as conn:
+            conn.execute(
+                "INSERT INTO notes (url, body, author, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
+                (req.url, req.body.strip(), req.author.strip(), now, now),
+            )
+            row = conn.execute("SELECT last_insert_rowid() AS id").fetchone()
+        return {"id": row["id"], "url": req.url, "body": req.body.strip(),
+                "author": req.author.strip(), "created_at": now}
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@app.delete("/api/notes/{note_id}", status_code=200)
+def delete_note(note_id: int) -> dict:
+    with _db() as conn:
+        row = conn.execute("SELECT id FROM notes WHERE id = ?", (note_id,)).fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Note not found")
+        conn.execute("DELETE FROM notes WHERE id = ?", (note_id,))
+    return {"deleted": note_id}
+
+
+# Coverage 
 
 @app.get("/api/coverage")
 def get_coverage(runkey: str = Query(...)) -> list[dict]:
@@ -616,9 +982,7 @@ def get_coverage(runkey: str = Query(...)) -> list[dict]:
         })
     return result
 
-
-# ── Missing schools ───────────────────────────────────────────────────────────
-# (schools not in this run's result set)
+# schools not in this run's result set but previously were
 
 @app.get("/api/missing")
 def get_missing(runkey: str = Query(...)) -> list[str]:
@@ -649,8 +1013,7 @@ def get_missing(runkey: str = Query(...)) -> list[str]:
     return [r["url"] for r in rows]
 
 
-# ── School summary ────────────────────────────────────────────────────────────
-
+# School summary
 @app.get("/api/school")
 def get_school(runkey: str = Query(...), url: str = Query(...)) -> dict:
     """All findings + coverage for a single school — used by the summary card."""
@@ -735,14 +1098,15 @@ def get_school(runkey: str = Query(...), url: str = Query(...)) -> dict:
     }
 
 
-# ── Worst findings ───────────────────────────────────────────────────────────
-
+# Worst findings
 @app.get("/api/worst-findings")
 def get_worst_findings(
-    runkey: str = Query(...),
-    limit: int  = Query(default=100, le=500),
+    runkey:   str  = Query(...),
+    limit:    int  = Query(default=100, le=500),
+    hide_nvd: bool = Query(default=False),
 ) -> list[dict]:
     """Top N adverse findings across all schools, ordered by severity then age (oldest first)."""
+    nvd_clause = _HIDE_NVD if hide_nvd else ""
     conn = _db()
     rows = conn.execute(
         f"""
@@ -758,6 +1122,7 @@ def get_worst_findings(
           AND f.severity IN ('critical','high','medium')
           AND f.status   IN ('fail','warn')
           {_NOT_SUPPRESSED}
+          {nvd_clause}
         ORDER BY
             CASE f.severity WHEN 'critical' THEN 0 WHEN 'high' THEN 1 WHEN 'medium' THEN 2 END,
             first_seen ASC
@@ -785,12 +1150,16 @@ def get_worst_findings(
 
 # Prevalent issues 
 @app.get("/api/prevalent-issues")
-def get_prevalent_issues(runkey: str = Query(...)) -> list[dict]:
+def get_prevalent_issues(
+    runkey:   str  = Query(...),
+    hide_nvd: bool = Query(default=False),
+) -> list[dict]:
     """
     For each distinct (check_name, check_category, severity) in this run,
     count how many schools are affected.  Ordered by school_count DESC,
     then severity rank ASC.
     """
+    nvd_clause = _HIDE_NVD if hide_nvd else ""
     conn = _db()
 
     total_schools = conn.execute(
@@ -807,6 +1176,7 @@ def get_prevalent_issues(runkey: str = Query(...)) -> list[dict]:
           AND f.severity IN ('critical','high','medium')
           AND f.status   IN ('fail','warn')
           {_NOT_SUPPRESSED}
+          {nvd_clause}
         GROUP BY f.check_name, f.check_category, f.severity
         ORDER BY
             school_count DESC,
@@ -912,27 +1282,66 @@ def get_domain_expiry(
     total = len(result)
     return {"total": total, "rows": result[offset: offset + limit]}
 
+def _validate_runkey_path(runkey: str) -> Path:
+    """Validate and return the NDJSON path for a runkey, rejecting path traversal."""
+    candidate = (OUTPUT_DIR / f"{runkey}.ndjson").resolve()
+    try:
+        candidate.relative_to(OUTPUT_DIR.resolve())
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid runkey")
+    return candidate
+
+
 # Export
 @app.get("/api/export")
-def export_csv(runkey: str = Query(...)) -> StreamingResponse:
+def export_csv(
+    runkey: str = Query(...),
+    search: str = Query(default=""),
+    sev: str = Query(default="all"),
+    hide_nvd: bool = Query(default=False),
+    la_name: str = Query(default=""),
+) -> StreamingResponse:
+    _validate_runkey_path(runkey)  # path traversal guard
     conn = _db()
     run = conn.execute("SELECT runkey FROM runs WHERE runkey = ?", (runkey,)).fetchone()
     if not run:
         conn.close()
         raise HTTPException(status_code=404, detail=f"Run '{runkey}' not found")
 
+    where_clauses = ["f.runkey = ?"]
+    params: list = [runkey]
+
+    if sev and sev != "all":
+        where_clauses.append("f.severity = ?")
+        params.append(sev)
+
+    if hide_nvd:
+        where_clauses.append("f.check_name != 'component_vulnerable_version'")
+
+    if search:
+        where_clauses.append("LOWER(f.url) LIKE ?")
+        params.append(f"%{search.lower()}%")
+
+    if la_name:
+        where_clauses.append(
+            "(CASE WHEN f.la_name != '' THEN f.la_name ELSE f.business_unit END) = ?"
+        )
+        params.append(la_name)
+
+    where_sql = " AND ".join(where_clauses)
+
     rows = conn.execute(
         f"""
         SELECT f.url, f.check_category, f.check_name, f.status, f.severity, f.detail, f.timestamp
         FROM findings f
-        WHERE f.runkey = ?
+        WHERE {where_sql}
         ORDER BY f.url,
             CASE f.severity
                 WHEN 'critical' THEN 0 WHEN 'high' THEN 1 WHEN 'medium' THEN 2
                 WHEN 'low'      THEN 3 WHEN 'info'  THEN 4 ELSE 5
             END
         """,
-        (runkey,),
+        params,
     ).fetchall()
 
     suppression_rows = conn.execute(
@@ -961,12 +1370,271 @@ def export_csv(runkey: str = Query(...)) -> StreamingResponse:
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
 
+# Suppression expiry
+@app.get("/api/suppress/expiring")
+def get_expiring_suppressions(within_days: int = Query(default=14, ge=1, le=365)) -> list[dict]:
+    """List suppressions expiring within the next N days."""
+    conn = _db()
+    rows = conn.execute(
+        """
+        SELECT * FROM suppressions
+        WHERE expires_at IS NOT NULL
+          AND expires_at > datetime('now')
+          AND expires_at <= datetime('now', ? || ' days')
+        ORDER BY expires_at ASC
+        """,
+        (str(within_days),),
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+@app.get("/api/suppress/expiry-warning")
+def get_expiry_warning(within_days: int = Query(default=14, ge=1)) -> dict:
+    """Count of suppressions expiring within N days (for dashboard badge)."""
+    conn = _db()
+    row = conn.execute(
+        """
+        SELECT COUNT(*) AS n FROM suppressions
+        WHERE expires_at IS NOT NULL
+          AND expires_at > datetime('now')
+          AND expires_at <= datetime('now', ? || ' days')
+        """,
+        (str(within_days),),
+    ).fetchone()
+    conn.close()
+    return {"expiring_soon": row["n"] if row else 0, "within_days": within_days}
+
+
+# Check-level trends for Analysis chart
+@app.get("/api/check-trends")
+def get_check_trends(runkey: str = Query(...), hide_nvd: bool = Query(default=False)) -> dict:
+    """
+    Return per-check-name fail/warn counts across last 10 runs for the top-10
+    most prevalent issues in the current run.  Used for the Analysis trend chart.
+
+    Response shape:
+        {
+          "runs": ["2026-03-10-abc", ...],   // last 10 runkeys, oldest-first
+          "data": {
+            "hsts_present": [1200, 1150, 1100, ...],
+            ...
+          }
+        }
+    """
+    conn = _db()
+    recent_runs = list(reversed(conn.execute(
+        "SELECT runkey, started_at FROM runs ORDER BY started_at DESC LIMIT 10"
+    ).fetchall()))
+    run_keys = [r["runkey"] for r in recent_runs]
+
+    if not run_keys:
+        conn.close()
+        return {"runs": [], "data": {}}
+
+    nvd_clause = _HIDE_NVD if hide_nvd else ""
+    # Top-10 check_names by school_count in the current run
+    top_checks_rows = conn.execute(
+        f"""
+        SELECT f.check_name, COUNT(DISTINCT f.url) AS n
+        FROM findings f
+        WHERE f.runkey = ?
+          AND f.severity IN ('critical','high','medium')
+          AND f.status IN ('fail','warn')
+          {_NOT_SUPPRESSED}
+          {nvd_clause}
+        GROUP BY f.check_name
+        ORDER BY n DESC
+        LIMIT 10
+        """,
+        (runkey,),
+    ).fetchall()
+    top_checks = [r["check_name"] for r in top_checks_rows]
+
+    if not top_checks:
+        conn.close()
+        return {"runs": run_keys, "data": {}}
+
+    placeholders_rk = ",".join("?" * len(run_keys))
+    placeholders_ck = ",".join("?" * len(top_checks))
+
+    rows = conn.execute(
+        f"""
+        SELECT runkey, check_name, COUNT(DISTINCT url) AS n
+        FROM findings
+        WHERE runkey IN ({placeholders_rk})
+          AND check_name IN ({placeholders_ck})
+          AND severity IN ('critical','high','medium')
+          AND status IN ('fail','warn')
+        GROUP BY runkey, check_name
+        """,
+        (*run_keys, *top_checks),
+    ).fetchall()
+    conn.close()
+
+    # Build (runkey, check_name) -> count
+    counts: dict[tuple, int] = {(r["runkey"], r["check_name"]): r["n"] for r in rows}
+    data: dict[str, list[int]] = {}
+    for check in top_checks:
+        data[check] = [counts.get((rk, check), 0) for rk in run_keys]
+
+    return {"runs": run_keys, "data": data}
+
+
+# Quick wins summary
+# TODO: validate the ease of fix, these are an initial best guess
+_EASE_OF_FIX: dict[str, tuple[str, int]] = {
+    # (label, score): higher = easier to fix
+    "hsts_present":            ("Add HTTP header",     3),
+    "hsts_max_age":            ("Change header value", 3),
+    "csp_present":             ("Add HTTP header",     3),
+    "csp_unsafe_inline":       ("Update CSP value",    3),
+    "csp_unsafe_eval":         ("Update CSP value",    3),
+    "csp_wildcard":            ("Update CSP value",    3),
+    "csp_missing_directive":   ("Update CSP value",    3),
+    "x_frame_options":         ("Add HTTP header",     3),
+    "x_content_type_options":  ("Add HTTP header",     3),
+    "referrer_policy":         ("Add HTTP header",     3),
+    "permissions_policy":      ("Add HTTP header",     3),
+    "spf_present":             ("Add DNS TXT record",  3),
+    "spf_all_mechanism":       ("Update DNS record",   3),
+    "dmarc_present":           ("Add DNS TXT record",  3),
+    "dns_caa_record":          ("Add DNS CAA record",  3),
+    "https_enforced":          ("Web server config",   2),
+    "tls_expiry_days":         ("Renew certificate",   2),
+    "dmarc_policy":            ("Update DNS record",   2),
+    "cookie_security":         ("Update web app code", 2),
+    "tls_weak_protocol":       ("Web server config",   2),
+    "tls_weak_cipher":         ("Web server config",   2),
+    "open_redirect":           ("Code change required", 1),
+    "mixed_content_active":    ("Code/template change", 1),
+    "mixed_content_passive":   ("Code/template change", 1),
+    "git_exposed":             ("Web server config",   2),
+    "env_file_exposed":        ("Web server config",   2),
+    "wordpress_xmlrpc_enabled":("WordPress config",    2),
+}
+
+@app.get("/api/quick-wins")
+def get_quick_wins(runkey: str = Query(...), hide_nvd: bool = Query(default=False)) -> list[dict]:
+    """
+    Return prevalent issues ranked by a composite score of
+    affected school count × ease of fix 
+    """
+    nvd_clause = _HIDE_NVD if hide_nvd else ""
+    conn = _db()
+    total_schools = conn.execute(
+        "SELECT COUNT(DISTINCT url) AS n FROM findings WHERE runkey = ?", (runkey,)
+    ).fetchone()["n"] or 1
+
+    rows = conn.execute(
+        f"""
+        SELECT f.check_name, f.check_category, f.severity,
+               COUNT(DISTINCT f.url) AS school_count
+        FROM findings f
+        WHERE f.runkey = ?
+          AND f.severity IN ('critical','high','medium')
+          AND f.status IN ('fail','warn')
+          {_NOT_SUPPRESSED}
+          {nvd_clause}
+        GROUP BY f.check_name, f.check_category, f.severity
+        """,
+        (runkey,),
+    ).fetchall()
+    conn.close()
+
+    result = []
+    for r in rows:
+        ease_label, ease_score = _EASE_OF_FIX.get(r["check_name"], ("Manual investigation", 1))
+        composite = r["school_count"] * ease_score
+        result.append({
+            **dict(r),
+            "ease_label":    ease_label,
+            "ease_score":    ease_score,
+            "composite":     composite,
+            "pct_schools":   round(r["school_count"] / total_schools * 100, 1),
+        })
+
+    result.sort(key=lambda x: x["composite"], reverse=True)
+    return result[:50]
+
+
+#  Scan progress live view 
+@app.get("/api/scan-status")
+def get_scan_status() -> dict:
+    """Read the most recent checkpoint file to report scan progress."""
+    checkpoint_dir = OUTPUT_DIR / "checkpoints"
+    if not checkpoint_dir.exists():
+        return {"status": "no_scan", "runkey": None, "completed": 0, "total": 0, "pct": 0}
+
+    checkpoints = sorted(
+        checkpoint_dir.glob("*.json"),
+        key=lambda p: p.stat().st_mtime,
+        reverse=True,
+    )
+    if not checkpoints:
+        return {"status": "no_scan", "runkey": None, "completed": 0, "total": 0, "pct": 0}
+
+    latest = checkpoints[0]
+    try:
+        data: dict = json.loads(latest.read_text())
+    except Exception:
+        return {"status": "error", "runkey": latest.stem, "completed": 0, "total": 0, "pct": 0}
+
+    completed = sum(1 for v in data.values() if v)
+    total = len(data)
+    pct = round(completed / total * 100) if total else 0
+    # Heuristic: if completed == total, scan is done
+    status = "complete" if (total > 0 and completed >= total) else "running"
+    return {
+        "status":    status,
+        "runkey":    latest.stem,
+        "completed": completed,
+        "total":     total,
+        "pct":       pct,
+        "modified":  latest.stat().st_mtime,
+    }
+
+
+# LA / Region summary
+# Relies on school metadata being present in the history DB
+# Schools without metadata are grouped as "Unknown"
+# TODO: this needs validating with Alison, i don't actually know the school grouping model
+
+@app.get("/api/la-summary")
+def get_la_summary(runkey: str = Query(...)) -> list[dict]:
+    """
+    Per-LA adverse finding summary for the given run.
+    Groups by la_name when present, falls back to business_unit.
+    """
+    conn = _db()
+
+    # Group by la_name when present, fall back to business_unit
+    rows = conn.execute(
+        f"""
+        SELECT
+            CASE WHEN f.la_name != '' THEN f.la_name ELSE f.business_unit END AS la_name,
+            f.business_unit,
+            COUNT(DISTINCT f.url) AS school_count,
+            SUM(CASE WHEN f.severity='critical' AND f.status IN ('fail','warn') THEN 1 ELSE 0 END) AS critical,
+            SUM(CASE WHEN f.severity='high'     AND f.status IN ('fail','warn') THEN 1 ELSE 0 END) AS high,
+            SUM(CASE WHEN f.severity='medium'   AND f.status IN ('fail','warn') THEN 1 ELSE 0 END) AS medium
+        FROM findings f
+        WHERE f.runkey = ?
+          {_NOT_SUPPRESSED}
+        GROUP BY CASE WHEN f.la_name != '' THEN f.la_name ELSE f.business_unit END
+        ORDER BY critical DESC, high DESC, medium DESC
+        """,
+        (runkey,),
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
 # ---------------------------------------------------------------------------
 # ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
 # ---------------------------------------------------------------------------
-# TODO NO SECURITY OR AUTH BUILT IN!!!!
+# auth is configured via DASHBOARD_USERNAME / DASHBOARD_PASSWORD env vars
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="School Cyber Exposure dashboard")
     parser.add_argument("--host", default="0.0.0.0")

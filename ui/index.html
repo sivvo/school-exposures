@@ -338,6 +338,57 @@
       background: #f1f5f9; color: #64748b;
     }
     .wo-school-rank.top3 { background: #1e1e1e; color: #fff; }
+
+    /* ── Notes   ── */
+    .note-item {
+      padding: 6px 0; border-bottom: 1px solid #f1f5f9; font-size: 13px;
+      display: flex; gap: 8px; align-items: flex-start;
+    }
+    .note-body { flex: 1; color: #1e293b; line-height: 1.5; }
+    .note-meta { font-size: 11px; color: #94a3b8; white-space: nowrap; }
+    .note-del  { background: none; border: none; color: #ef4444; cursor: pointer;
+                 font-size: 13px; padding: 0 4px; flex-shrink: 0; }
+
+    /* ── Suppression expiry warning badge ── */
+    .expiry-warn-badge {
+      background: #fef3c7; color: #92400e; border: 1px solid #fcd34d;
+      border-radius: 4px; font-size: 11px; padding: 2px 6px; margin-left: 6px;
+      font-weight: 600;
+    }
+
+    /* ── Quick wins ease pills ── */
+    .ease-easy   { color: #16a34a; font-weight: 600; font-size: 12px; }
+    .ease-medium { color: #d97706; font-weight: 600; font-size: 12px; }
+    .ease-hard   { color: #dc2626; font-weight: 600; font-size: 12px; }
+
+    /* ── Issue trends chart ── */
+    .trend-legend { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 10px; }
+    .trend-legend-item { display: flex; align-items: center; gap: 4px; font-size: 11px; color: #475569; }
+    .trend-legend-dot  { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+
+    /* ── Print/PDF report   ── */
+    @media print {
+      body > *:not(#schoolOverlay) { display: none !important; }
+      #schoolOverlay { display: block !important; position: static !important;
+                       background: white !important; overflow: visible !important; }
+      #schoolOverlay .modal { box-shadow: none !important; max-width: 100% !important;
+                              width: 100% !important; position: static !important; }
+      #schoolOverlay .modal-header { display: none !important; }
+      #schoolOverlay #schoolMeta,
+      #schoolOverlay #schoolCatGrid,
+      #schoolOverlay .school-trend { display: none !important; }
+      #schoolOverlay .modal-body { display: none !important; }
+      #schoolOverlay .school-trend { display: none !important; }
+      #schoolOverlay > .modal > div:not(#printReport):not(.print-button-row) { display: none !important; }
+      #printReport { display: block !important; }
+      #printReportBtn { display: none !important; }
+      .print-report-header { border-bottom: 2px solid #1e293b; margin-bottom: 16px; padding-bottom: 12px; }
+      .print-report-header h2 { font-size: 18px; color: #1e293b; }
+      .print-help { margin-top: 20px; padding: 12px; background: #f8fafc;
+                    border: 1px solid #e2e8f0; font-size: 12px; }
+      #noteInput, #noteAuthor, #addNoteBtn { display: none !important; }
+      .suppress-btn, .unsuppress-btn, .evidence-toggle { display: none !important; }
+    }
   </style>
 </head>
 <body>
@@ -354,8 +405,15 @@
         <option value="high">Has high or critical</option>
         <option value="critical">Has critical findings</option>
       </select>
+      <select id="suffixFilter" title="Filter by domain suffix">
+        <option value="">All suffixes</option>
+      </select>
+      <select id="laFilter" title="Filter by LA / region">
+        <option value="">All LAs</option>
+      </select>
       <button class="btn" id="exportBtn">⬇ Export CSV</button>
       <button class="btn" id="suppressionsBtn">⊘ Suppressions</button>
+      <button class="btn" id="scanStatusBtn" style="display:none" title="Scan in progress">⏳ Scan…</button>
     </div>
   </div>
 </header>
@@ -371,6 +429,18 @@
     </span>
   </div>
 </nav>
+
+<!-- ── Scan progress bar    ── -->
+<div id="scanProgressBar" style="display:none; background:#1e293b; color:#f8fafc; padding:7px 20px;
+     font-size:12px; display:none; align-items:center; gap:14px;">
+  <span>⏳ <strong>Scan in progress</strong>:</span>
+  <span id="scanProgressText">–</span>
+  <div style="flex:1; height:6px; background:#334155; border-radius:3px; min-width:80px; max-width:200px">
+    <div id="scanProgressFill" style="height:100%; background:#22d3ee; border-radius:3px; width:0%; transition:width 0.5s"></div>
+  </div>
+  <button style="background:none;border:none;color:#94a3b8;cursor:pointer;font-size:11px;padding:0"
+    id="dismissScanProgress">✕</button>
+</div>
 
 <div class="stats-bar" id="statsBar">Loading…</div>
 
@@ -403,7 +473,7 @@
         </tr>
       </thead>
       <tbody id="tableBody">
-        <tr class="state-row"><td colspan="9">Select a run to load data.</td></tr>
+        <tr class="state-row"><td colspan="10">Select a run to load data.</td></tr>
       </tbody>
     </table>
   </div>
@@ -496,6 +566,35 @@
         </tbody>
       </table>
     </div>
+    <!-- ── Notes section   ── -->
+    <div style="padding:12px 16px; border-top:1px solid #e2e8f0">
+      <div style="font-size:12px; font-weight:600; color:#475569; text-transform:uppercase;
+                  letter-spacing:0.06em; margin-bottom:8px">Analyst Notes</div>
+      <div id="schoolNotesList" style="margin-bottom:8px; max-height:120px; overflow-y:auto"></div>
+      <div style="display:flex; gap:6px">
+        <input id="noteInput" type="text" placeholder="Add a note…" autocomplete="off"
+          style="flex:1; padding:5px 8px; border:1px solid #e2e8f0; border-radius:4px; font-size:13px">
+        <input id="noteAuthor" type="text" placeholder="Your name (optional)"
+          style="width:140px; padding:5px 8px; border:1px solid #e2e8f0; border-radius:4px; font-size:13px">
+        <button class="btn" id="addNoteBtn" style="padding:5px 10px; font-size:12px">Add</button>
+      </div>
+    </div>
+    <!-- ── Print report    ── -->
+    <div id="printReport" style="display:none">
+      <div class="print-report-header">
+        <h2 id="printSchoolTitle"></h2>
+        <p id="printScanDate" style="color:#64748b; font-size:13px"></p>
+      </div>
+      <div id="printRiskSection"></div>
+      <div id="printFindingsSection"></div>
+      <div class="print-help">
+        <strong>How to get help:</strong> Contact DfE Cyber Security or visit
+        <span>https://www.ncsc.gov.uk/</span> for technical guidance.
+      </div>
+    </div>
+    <div class="print-button-row" style="padding:8px 16px; border-top:1px solid #f1f5f9; text-align:right">
+      <button class="btn" id="printReportBtn" style="font-size:12px">🖨 Print Report</button>
+    </div>
   </div>
 </div>
 
@@ -512,6 +611,9 @@
       <button class="tab-btn" data-tab="schools">Worst Schools</button>
       <button class="tab-btn" data-tab="best">Best Schools</button>
       <button class="tab-btn" data-tab="prevalent">Most Prevalent Issues</button>
+      <button class="tab-btn" data-tab="quickwins">Quick Wins</button>
+      <button class="tab-btn" data-tab="trends">Issue Trends</button>
+      <button class="tab-btn" data-tab="la-summary">By LA / Region</button>
     </div>
     <div class="modal-body" style="max-height:65vh">
       <div id="tab-findings" class="tab-panel active">
@@ -573,10 +675,75 @@
               <th data-wpcol="check_name">Issue</th>
               <th data-wpcol="school_count" class="sorted-desc" style="width:110px">Schools Affected</th>
               <th data-wpcol="pct_schools" style="width:80px">% of Total</th>
+              <th style="width:110px">Action</th>
             </tr>
           </thead>
           <tbody id="woPrevalentBody">
+            <tr class="state-row"><td colspan="6">Loading…</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <!-- Quick Wins tab -->
+      <div id="tab-quickwins" class="tab-panel">
+        <div style="padding:10px 14px 4px;font-size:12px;color:#64748b">
+          Ranked by <em>affected schools × ease of fix</em>.
+          Fixing the top items would benefit the most schools for the least effort.
+        </div>
+        <table class="detail-table" id="woQuickWinsTable">
+          <thead>
+            <tr>
+              <th style="width:30px">#</th>
+              <th style="width:85px">Severity</th>
+              <th>Issue</th>
+              <th style="width:120px">Schools Affected</th>
+              <th style="width:130px">Ease of Fix</th>
+            </tr>
+          </thead>
+          <tbody id="woQuickWinsBody">
             <tr class="state-row"><td colspan="5">Loading…</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <!-- Issue Trends tab -->
+      <div id="tab-trends" class="tab-panel">
+        <div style="padding:10px 14px 4px;font-size:12px;color:#64748b">
+          Top-10 most prevalent issues trend across the last 10 runs (oldest → newest).
+        </div>
+        <div id="woTrendsChart" style="padding:14px 16px"></div>
+      </div>
+      <!-- LA / Region summary tab -->
+      <div id="tab-la-summary" class="tab-panel">
+        <div id="woLaNoData" style="display:none;padding:20px 16px">
+          <div style="font-size:14px;font-weight:600;color:#475569;margin-bottom:8px">No LA / region data available</div>
+          <div style="font-size:13px;color:#64748b;line-height:1.6">
+            This view groups schools by local authority and requires GIAS metadata in your input CSV.<br><br>
+            Add the following columns to <code>config/urls.csv</code>:
+            <ul style="margin:8px 0 0 16px;font-size:13px">
+              <li><code>la_name</code> — local authority name (e.g. "Southwark")</li>
+              <li><code>region</code> — region (e.g. "London")</li>
+              <li><code>urn</code> — unique reference number from GIAS</li>
+              <li><code>school_type</code> — e.g. "Academy", "Community school"</li>
+              <li><code>phase</code> — e.g. "Primary", "Secondary"</li>
+            </ul>
+            <br>Download a GIAS export from
+            <a href="https://get-information-schools.service.gov.uk/Downloads" target="_blank" rel="noopener"
+               style="color:#2563eb">get-information-schools.service.gov.uk</a>
+            and merge it with your URL list on URN or school name.
+          </div>
+        </div>
+        <table class="detail-table" id="woLaSummaryTable" style="display:none">
+          <thead>
+            <tr>
+              <th>Local Authority</th>
+              <th style="width:90px">Schools</th>
+              <th style="width:80px">Critical</th>
+              <th style="width:70px">High</th>
+              <th style="width:70px">Medium</th>
+              <th style="width:110px">Export</th>
+            </tr>
+          </thead>
+          <tbody id="woLaSummaryBody">
+            <tr class="state-row"><td colspan="6">Loading…</td></tr>
           </tbody>
         </table>
       </div>
@@ -672,26 +839,7 @@ function debounce(fn, ms) {
   let t; return (...args) => { clearTimeout(t); t = setTimeout(() => fn(...args), ms); };
 }
 
-// ─── Init ────────────────────────────────────────────────────────────────────
-async function init() {
-  let runs;
-  try { runs = await apiFetch("/api/runs"); }
-  catch (e) {
-    document.getElementById("statsBar").textContent = "Failed to load runs — is the server running?";
-    return;
-  }
-  const sel = document.getElementById("runSelect");
-  if (!runs.length) { sel.innerHTML = '<option>No runs found</option>'; return; }
-  runs.forEach((run, i) => {
-    const date = run.started_at.replace("T"," ").slice(0,16);
-    const opt  = document.createElement("option");
-    opt.value  = run.runkey;
-    opt.textContent = `${date}  ·  ${run.total_targets ?? "?"} schools  ·  ${run.total_findings ?? "?"} findings`;
-    if (i === 0) opt.selected = true;
-    sel.appendChild(opt);
-  });
-  await loadRun(runs[0].runkey);
-}
+// ─── Init (defined at bottom of script) ─────────────────────────────────────
 
 async function loadRun(runkey) {
   currentRunkey = runkey;
@@ -712,7 +860,7 @@ async function loadRun(runkey) {
 async function loadTablePage() {
   document.getElementById("statsBar").textContent = "Loading…";
   document.getElementById("tableBody").innerHTML =
-    `<tr class="state-row"><td colspan="9">Loading…</td></tr>`;
+    `<tr class="state-row"><td colspan="10">Loading…</td></tr>`;
   try {
     const params = new URLSearchParams({
       runkey:   currentRunkey,
@@ -724,6 +872,10 @@ async function loadTablePage() {
       limit:    PAGE_SIZE,
     });
     if (!nvdEnabled) params.set("hide_nvd", "1");
+    const suffix = document.getElementById("suffixFilter")?.value || "";
+    if (suffix) params.set("domain_suffix", suffix);
+    const laFilterVal = document.getElementById("laFilter")?.value || "";
+    if (laFilterVal) params.set("la_name", laFilterVal);
     const data = await apiFetch(`/api/table?${params}`);
     allRows    = data.rows    || [];
     tableTotal = data.total   || 0;
@@ -735,7 +887,7 @@ async function loadTablePage() {
     if (allRows.length) loadTrendsForPage();
   } catch (e) {
     document.getElementById("tableBody").innerHTML =
-      `<tr class="state-row"><td colspan="9">Error loading data: ${escHtml(String(e))}</td></tr>`;
+      `<tr class="state-row"><td colspan="10">Error loading data: ${escHtml(String(e))}</td></tr>`;
     document.getElementById("statsBar").textContent = "Error";
   }
 }
@@ -959,7 +1111,14 @@ document.getElementById("nextPage").addEventListener("click", () => {
 
 // ─── Export ──────────────────────────────────────────────────────────────────
 document.getElementById("exportBtn").addEventListener("click", () => {
-  if (currentRunkey) window.location.href = `/api/export?runkey=${enc(currentRunkey)}`;
+  if (!currentRunkey) return;
+  const params = new URLSearchParams({ runkey: currentRunkey });
+  const search = document.getElementById("searchInput").value.trim();
+  const sev    = document.getElementById("severityFilter").value;
+  if (search) params.set("search", search);
+  if (sev && sev !== "all") params.set("sev", sev);
+  if (!nvdEnabled) params.set("hide_nvd", "1");
+  window.location.href = `/api/export?${params.toString()}`;
 });
 
 // ─── Page navigation ──────────────────────────────────────────────────────────
@@ -1100,100 +1259,9 @@ function renderDetailTable() {
   attachDetailHandlers(tbody, detailFindings, () => renderDetailTable(), () => loadTablePage());
 }
 
-function detailRow(f, i, url) {
-  const evJson = f.evidence && Object.keys(f.evidence).length
-    ? JSON.stringify(f.evidence, null, 2) : null;
-  const evSection = evJson
-    ? `<button class="evidence-toggle" data-idx="${i}">▶ Evidence</button>
-       <pre class="evidence-block" id="ev-${i}">${escHtml(evJson)}</pre>` : "";
+// ─── Detail row (defined below with remediation support) ───
 
-  let ageTd = "<td>–</td>";
-  if (f.age_days !== null && f.age_days !== undefined) {
-    ageTd = `<td><span class="age-badge${f.age_days>=30?" old":""}" title="First seen ${f.first_seen}">${f.age_days}d</span></td>`;
-  }
-
-  let supSection = "";
-  if (f.suppressed) {
-    supSection = `<div style="margin-top:4px">
-      <span class="suppressed-badge">Suppressed</span>
-      <span style="font-size:11px;color:#94a3b8;margin-left:4px">${escHtml(f.suppression_reason||"")}${f.suppression_date?" ("+f.suppression_date+")":""}</span>
-    </div>
-    <button class="unsuppress-btn" data-sup-id="${f.suppression_id}" data-idx="${i}">↩ Unsuppress</button>`;
-  } else if (f.status==="fail"||f.status==="warn") {
-    supSection = `
-      <button class="suppress-btn" data-url="${esc(url)}" data-check="${esc(f.check_name)}" data-idx="${i}">⊘ Suppress</button>
-      <div class="suppress-inline" id="sup-form-${i}">
-        <input type="text" placeholder="Reason (optional)" id="sup-reason-${i}">
-        <button class="suppress-confirm" data-url="${esc(url)}" data-check="${esc(f.check_name)}" data-idx="${i}">Confirm</button>
-        <button class="suppress-cancel" data-idx="${i}">Cancel</button>
-      </div>`;
-  }
-  return `<tr${f.suppressed?' class="suppressed-row"':""}>
-    <td><span class="sev-pill ${f.severity}">${f.severity}</span></td>
-    <td>
-      <div style="font-weight:500">${escHtml(f.check_name)}</div>
-      <div style="font-size:11px;color:#94a3b8">${escHtml(f.check_category)}</div>
-    </td>
-    <td><span class="status-pill ${f.status}">${f.status}</span></td>
-    ${ageTd}
-    <td>
-      <div style="color:#475569;line-height:1.5">${escHtml(f.detail)}</div>
-      ${evSection}${supSection}
-    </td>
-  </tr>`;
-}
-
-function attachDetailHandlers(tbody, findingsRef, rerender, refreshTable) {
-  tbody.querySelectorAll(".evidence-toggle").forEach(btn => {
-    btn.addEventListener("click", () => {
-      const block = document.getElementById(`ev-${btn.dataset.idx}`);
-      const open = block.classList.toggle("open");
-      btn.textContent = (open?"▼":"▶") + " Evidence";
-    });
-  });
-  tbody.querySelectorAll(".suppress-btn").forEach(btn => {
-    btn.addEventListener("click", () => {
-      document.getElementById(`sup-form-${btn.dataset.idx}`).classList.add("open");
-      btn.style.display = "none";
-    });
-  });
-  tbody.querySelectorAll(".suppress-cancel").forEach(btn => {
-    btn.addEventListener("click", () => {
-      const form = document.getElementById(`sup-form-${btn.dataset.idx}`);
-      form.classList.remove("open");
-      form.previousElementSibling.style.display = "";
-    });
-  });
-  tbody.querySelectorAll(".suppress-confirm").forEach(btn => {
-    btn.addEventListener("click", async () => {
-      const reason = (document.getElementById(`sup-reason-${btn.dataset.idx}`)?.value||"").trim();
-      await apiFetch("/api/suppress", {
-        method:"POST", headers:{"Content-Type":"application/json"},
-        body: JSON.stringify({ url:btn.dataset.url, check_name:btn.dataset.check, reason }),
-      });
-      // Reload findings for this context into findingsRef in-place
-      const ctx = detailContext;
-      if (ctx) {
-        const p = new URLSearchParams({runkey:currentRunkey,url:ctx.url,category:ctx.category});
-        const fresh = await apiFetch(`/api/detail?${p}`);
-        findingsRef.length = 0; fresh.forEach(f => findingsRef.push(f));
-      }
-      rerender(); refreshTable();
-    });
-  });
-  tbody.querySelectorAll(".unsuppress-btn").forEach(btn => {
-    btn.addEventListener("click", async () => {
-      await apiFetch(`/api/suppress/${btn.dataset.supId}`, { method:"DELETE" });
-      const ctx = detailContext;
-      if (ctx) {
-        const p = new URLSearchParams({runkey:currentRunkey,url:ctx.url,category:ctx.category});
-        const fresh = await apiFetch(`/api/detail?${p}`);
-        findingsRef.length = 0; fresh.forEach(f => findingsRef.push(f));
-      }
-      rerender(); refreshTable();
-    });
-  });
-}
+// ─── attachDetailHandlers (defined below with expiry support) ───
 
 document.getElementById("detailTable").querySelector("thead").addEventListener("click", e => {
   const th = e.target.closest("th[data-dcol]"); if (!th) return;
@@ -1208,6 +1276,7 @@ closeOnOverlay("modalOverlay", "closeModal", () => { detailContext=null; });
 
 // ─── School summary modal ─────────────────────────────────────────────────────
 async function openSchoolSummary(url) {
+  currentSchoolUrl = url;  // TASK-019: track for notes
   document.getElementById("schoolTitle").textContent    = url.replace(/^https?:\/\//,"");
   document.getElementById("schoolMeta").innerHTML       = '<span style="color:#94a3b8;font-size:13px">Loading…</span>';
   document.getElementById("schoolCatGrid").innerHTML    = "";
@@ -1268,6 +1337,7 @@ async function openSchoolSummary(url) {
   schoolSortCol = "severity"; schoolSortDir = "asc";
   updateSortHeaders("#schoolFindingsTable","scol",schoolSortCol,schoolSortDir);
   renderSchoolFindings();
+  loadSchoolNotes(url);
 }
 
 function renderSchoolFindings() {
@@ -1347,7 +1417,6 @@ let woPrevalentData  = [];
 let woFindingsSort   = { col:"severity",     dir:"asc"  };
 let woPrevalentSort  = { col:"school_count", dir:"desc" };
 
-document.getElementById("navAnalysis").addEventListener("click", openWorstOffenders);
 closeOnOverlay("woOverlay","closeWoModal");
 
 document.getElementById("woExportBtn").addEventListener("click", () => {
@@ -1418,24 +1487,37 @@ async function openWorstOffenders() {
   document.getElementById("woFindingsBody").innerHTML =
     '<tr class="state-row"><td colspan="5">Loading…</td></tr>';
   document.getElementById("woPrevalentBody").innerHTML =
-    '<tr class="state-row"><td colspan="5">Loading…</td></tr>';
+    '<tr class="state-row"><td colspan="6">Loading…</td></tr>';
   document.getElementById("woSchoolsBody").innerHTML =
     '<tr class="state-row"><td colspan="6">Loading…</td></tr>';
   document.getElementById("woBestBody").innerHTML =
     '<tr class="state-row"><td colspan="6">Loading…</td></tr>';
+  document.getElementById("woQuickWinsBody").innerHTML =
+    '<tr class="state-row"><td colspan="5">Loading…</td></tr>';
+  document.getElementById("woLaSummaryBody").innerHTML =
+    '<tr class="state-row"><td colspan="6">Loading…</td></tr>';
 
-  const [findings, prevalent, scores] = await Promise.all([
-    apiFetch(`/api/worst-findings?runkey=${enc(currentRunkey)}&limit=100`),
-    apiFetch(`/api/prevalent-issues?runkey=${enc(currentRunkey)}`),
-    apiFetch(`/api/school-scores?runkey=${enc(currentRunkey)}${nvdEnabled ? "" : "&hide_nvd=1"}`),
+  const nvd = nvdEnabled ? "" : "&hide_nvd=1";
+  const [findings, prevalent, scores, quickwins, checkTrends, laSummary] = await Promise.all([
+    apiFetch(`/api/worst-findings?runkey=${enc(currentRunkey)}&limit=100${nvd}`),
+    apiFetch(`/api/prevalent-issues?runkey=${enc(currentRunkey)}${nvd}`),
+    apiFetch(`/api/school-scores?runkey=${enc(currentRunkey)}${nvd}`),
+    apiFetch(`/api/quick-wins?runkey=${enc(currentRunkey)}${nvd}`).catch(() => []),
+    apiFetch(`/api/check-trends?runkey=${enc(currentRunkey)}${nvd}`).catch(() => ({ runs: [], data: {} })),
+    apiFetch(`/api/la-summary?runkey=${enc(currentRunkey)}`).catch(() => []),
   ]);
-  woFindingsData  = findings;
-  woPrevalentData = prevalent;
-  schoolScores    = scores;
+  woFindingsData    = findings;
+  woPrevalentData   = prevalent;
+  schoolScores      = scores;
+  woQuickWinsData   = quickwins;
+  woCheckTrendsData = checkTrends;
   renderWorstFindings();
   renderPrevalentIssues();
   renderWorstSchools();
   renderBestSchools();
+  renderQuickWins();
+  renderCheckTrendsChart(woCheckTrendsData);
+  renderLaSummary(laSummary);
 }
 
 function renderWorstFindings() {
@@ -1528,7 +1610,7 @@ function renderPrevalentIssues() {
   });
   const tbody = document.getElementById("woPrevalentBody");
   if (!sorted.length) {
-    tbody.innerHTML = '<tr class="state-row"><td colspan="5">No adverse findings.</td></tr>';
+    tbody.innerHTML = '<tr class="state-row"><td colspan="6">No adverse findings.</td></tr>';
     return;
   }
   const maxCount = Math.max(...sorted.map(i => i.school_count), 1);
@@ -1552,9 +1634,16 @@ function renderPrevalentIssues() {
         </div>
       </td>
       <td style="font-size:13px;color:#64748b">${issue.pct_schools}%</td>
+      <td>
+        <button class="suppress-all-btn" data-check="${esc(issue.check_name)}" data-count="${issue.school_count}"
+          style="font-size:11px;padding:3px 8px;background:#fef2f2;color:#dc2626;border:1px solid #fecaca;
+                 border-radius:4px;cursor:pointer" title="Suppress this issue for all affected schools">
+          Suppress All
+        </button>
+      </td>
     </tr>
     <tr class="affected-schools-row" id="affected-row-${idx}" style="display:none">
-      <td colspan="5" style="padding:0">
+      <td colspan="6" style="padding:0">
         <div id="affected-content-${idx}" style="padding:8px 14px 10px;background:#f8fafc;border-top:1px solid #e2e8f0">
           Loading…
         </div>
@@ -1566,6 +1655,32 @@ function renderPrevalentIssues() {
   tbody.querySelectorAll(".affected-count").forEach(el => {
     el.addEventListener("click", () => toggleAffectedSchools(el.dataset.check, el.dataset.idx));
   });
+
+  // Attach click handlers for Suppress All buttons
+  tbody.querySelectorAll(".suppress-all-btn").forEach(btn => {
+    btn.addEventListener("click", () => bulkSuppressIssue(btn.dataset.check, parseInt(btn.dataset.count, 10)));
+  });
+}
+
+async function bulkSuppressIssue(checkName, schoolCount) {
+  const reason = prompt(
+    `Suppress "${checkName}" for all ${schoolCount} affected school${schoolCount !== 1 ? "s" : ""}?\n\nReason (required):`,
+    ""
+  );
+  if (reason === null) return; // cancelled
+  if (!reason.trim()) { alert("A reason is required for bulk suppression."); return; }
+  if (!confirm(`This will suppress "${checkName}" for ${schoolCount} school${schoolCount !== 1 ? "s" : ""}.\n\nAre you sure?`)) return;
+  try {
+    const result = await apiFetch("/api/suppress/bulk", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ runkey: currentRunkey, check_name: checkName, reason: reason.trim() }),
+    });
+    alert(`Done — suppressed "${checkName}" for ${result.inserted} school${result.inserted !== 1 ? "s" : ""}.`);
+    if (currentRunkey) loadTablePage();
+  } catch (e) {
+    alert("Bulk suppression failed: " + e.message);
+  }
 }
 
 async function toggleAffectedSchools(checkName, idx) {
@@ -1673,7 +1788,473 @@ async function apiFetch(url, opts) {
   return r.json();
 }
 
+// ─── Domain suffix filter   ─────────────────────────────────────────
+document.getElementById("suffixFilter").addEventListener("change", () => {
+  tableOffset = 0; loadTablePage();
+});
+document.getElementById("laFilter").addEventListener("change", () => {
+  tableOffset = 0; loadTablePage();
+});
+
+// ─── Scan progress polling ────────────────────────────────────────
+let _scanPollInterval = null;
+let _scanDismissed = false;
+
+function startScanProgressPolling() {
+  if (_scanPollInterval) return;
+  _scanPollInterval = setInterval(pollScanStatus, 5000);
+  pollScanStatus();
+}
+
+async function pollScanStatus() {
+  if (_scanDismissed) return;
+  try {
+    const s = await apiFetch("/api/scan-status");
+    const bar  = document.getElementById("scanProgressBar");
+    const fill = document.getElementById("scanProgressFill");
+    const text = document.getElementById("scanProgressText");
+    if (s.status === "running" && s.total > 0) {
+      bar.style.display = "flex";
+      fill.style.width  = s.pct + "%";
+      text.textContent  = `${s.completed} / ${s.total} schools (${s.pct}%) — run: ${s.runkey}`;
+    } else if (s.status === "complete") {
+      bar.style.display = "flex";
+      fill.style.width  = "100%";
+      fill.style.background = "#22c55e";
+      text.textContent  = `Scan complete — ${s.total} schools scanned`;
+      clearInterval(_scanPollInterval); _scanPollInterval = null;
+      setTimeout(() => { bar.style.display = "none"; }, 10000);
+    } else {
+      bar.style.display = "none";
+    }
+  } catch (_) {}
+}
+
+document.getElementById("dismissScanProgress").addEventListener("click", () => {
+  _scanDismissed = true;
+  document.getElementById("scanProgressBar").style.display = "none";
+  if (_scanPollInterval) { clearInterval(_scanPollInterval); _scanPollInterval = null; }
+});
+
+// ─── Remediation guidance  ─────────────────────────────────────────
+let remediationMap = {};
+async function loadRemediation() {
+  try { remediationMap = await apiFetch("/api/remediation"); } catch (_) {}
+}
+
+// Detail row with remediation link support
+function detailRow(f, i, url) {
+  const evJson = f.evidence && Object.keys(f.evidence).length
+    ? JSON.stringify(f.evidence, null, 2) : null;
+  const evSection = evJson
+    ? `<button class="evidence-toggle" data-idx="${i}">▶ Evidence</button>
+       <pre class="evidence-block" id="ev-${i}">${escHtml(evJson)}</pre>` : "";
+
+  let ageTd = "<td>–</td>";
+  if (f.age_days !== null && f.age_days !== undefined) {
+    ageTd = `<td><span class="age-badge${f.age_days>=30?" old":""}" title="First seen ${f.first_seen}">${f.age_days}d</span></td>`;
+  }
+
+  const rem = remediationMap[f.check_name];
+  const remLink = rem
+    ? `<a href="${esc(rem.url)}" target="_blank" rel="noopener noreferrer"
+          style="font-size:11px;color:#2563eb;margin-left:6px;text-decoration:none">
+         ↗ ${escHtml(rem.title)}</a>` : "";
+
+  let supSection = "";
+  if (f.suppressed) {
+    supSection = `<div style="margin-top:4px">
+      <span class="suppressed-badge">Suppressed</span>
+      <span style="font-size:11px;color:#94a3b8;margin-left:4px">${escHtml(f.suppression_reason||"")}${f.suppression_date?" ("+f.suppression_date+")":""}</span>
+    </div>
+    <button class="unsuppress-btn" data-sup-id="${f.suppression_id}" data-idx="${i}">↩ Unsuppress</button>`;
+  } else if (f.status==="fail"||f.status==="warn") {
+    supSection = `
+      <button class="suppress-btn" data-url="${esc(url)}" data-check="${esc(f.check_name)}" data-idx="${i}">⊘ Suppress</button>
+      <div class="suppress-inline" id="sup-form-${i}">
+        <input type="text" placeholder="Reason (optional)" id="sup-reason-${i}">
+        <select id="sup-expiry-${i}" style="font-size:12px;padding:3px 6px;border:1px solid #e2e8f0;border-radius:3px">
+          <option value="">No expiry</option>
+          <option value="30">Expires in 30 days</option>
+          <option value="90">Expires in 90 days</option>
+          <option value="180">Expires in 180 days</option>
+          <option value="365">Expires in 1 year</option>
+        </select>
+        <button class="suppress-confirm" data-url="${esc(url)}" data-check="${esc(f.check_name)}" data-idx="${i}">Confirm</button>
+        <button class="suppress-cancel" data-idx="${i}">Cancel</button>
+      </div>`;
+  }
+  return `<tr${f.suppressed?' class="suppressed-row"':""}>
+    <td><span class="sev-pill ${f.severity}">${f.severity}</span></td>
+    <td>
+      <div style="font-weight:500">${escHtml(f.check_name)}</div>
+      <div style="font-size:11px;color:#94a3b8">${escHtml(f.check_category)}</div>
+    </td>
+    <td><span class="status-pill ${f.status}">${f.status}</span></td>
+    ${ageTd}
+    <td>
+      <div style="color:#475569;line-height:1.5">${escHtml(f.detail)}${remLink}</div>
+      ${evSection}${supSection}
+    </td>
+  </tr>`;
+}
+
+// attachDetailHandlers with expiry support
+function attachDetailHandlers(tbody, findingsRef, rerender, refreshTable) {
+  tbody.querySelectorAll(".evidence-toggle").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const block = document.getElementById(`ev-${btn.dataset.idx}`);
+      const open = block.classList.toggle("open");
+      btn.textContent = (open?"▼":"▶") + " Evidence";
+    });
+  });
+  tbody.querySelectorAll(".suppress-btn").forEach(btn => {
+    btn.addEventListener("click", () => {
+      document.getElementById(`sup-form-${btn.dataset.idx}`).classList.add("open");
+      btn.style.display = "none";
+    });
+  });
+  tbody.querySelectorAll(".suppress-cancel").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const form = document.getElementById(`sup-form-${btn.dataset.idx}`);
+      form.classList.remove("open");
+      form.previousElementSibling.style.display = "";
+    });
+  });
+  tbody.querySelectorAll(".suppress-confirm").forEach(btn => {
+    btn.addEventListener("click", async () => {
+      const reason      = (document.getElementById(`sup-reason-${btn.dataset.idx}`)?.value||"").trim();
+      const expiryVal   = document.getElementById(`sup-expiry-${btn.dataset.idx}`)?.value || "";
+      const expires_days = expiryVal ? parseInt(expiryVal, 10) : null;
+      await apiFetch("/api/suppress", {
+        method:"POST", headers:{"Content-Type":"application/json"},
+        body: JSON.stringify({ url:btn.dataset.url, check_name:btn.dataset.check, reason, expires_days }),
+      });
+      const ctx = detailContext;
+      if (ctx) {
+        const p = new URLSearchParams({runkey:currentRunkey,url:ctx.url,category:ctx.category});
+        const fresh = await apiFetch(`/api/detail?${p}`);
+        findingsRef.length = 0; fresh.forEach(f => findingsRef.push(f));
+      }
+      rerender(); refreshTable();
+    });
+  });
+  tbody.querySelectorAll(".unsuppress-btn").forEach(btn => {
+    btn.addEventListener("click", async () => {
+      await apiFetch(`/api/suppress/${btn.dataset.supId}`, { method:"DELETE" });
+      const ctx = detailContext;
+      if (ctx) {
+        const p = new URLSearchParams({runkey:currentRunkey,url:ctx.url,category:ctx.category});
+        const fresh = await apiFetch(`/api/detail?${p}`);
+        findingsRef.length = 0; fresh.forEach(f => findingsRef.push(f));
+      }
+      rerender(); refreshTable();
+    });
+  });
+}
+
+// ─── Notes  ────────────────────────────────────────────────────────
+let currentSchoolUrl = null;
+
+async function loadSchoolNotes(url) {
+  const container = document.getElementById("schoolNotesList");
+  try {
+    const notes = await apiFetch(`/api/notes?url=${enc(url)}`);
+    if (!notes.length) {
+      container.innerHTML = '<div style="font-size:12px;color:#94a3b8;padding:4px 0">No notes yet.</div>';
+      return;
+    }
+    container.innerHTML = notes.map(n => `
+      <div class="note-item">
+        <div class="note-body">${escHtml(n.body)}</div>
+        <div style="display:flex;flex-direction:column;align-items:flex-end;gap:2px">
+          <span class="note-meta">${n.author ? escHtml(n.author)+" · " : ""}${(n.created_at||"").slice(0,10)}</span>
+          <button class="note-del" data-note-id="${n.id}" title="Delete note">✕</button>
+        </div>
+      </div>`).join("");
+    container.querySelectorAll(".note-del").forEach(btn => {
+      btn.addEventListener("click", async () => {
+        await apiFetch(`/api/notes/${btn.dataset.noteId}`, { method:"DELETE" });
+        loadSchoolNotes(currentSchoolUrl);
+      });
+    });
+  } catch (_) {
+    container.innerHTML = '<div style="font-size:12px;color:#ef4444">Failed to load notes.</div>';
+  }
+}
+
+document.getElementById("addNoteBtn").addEventListener("click", async () => {
+  if (!currentSchoolUrl) return;
+  const body   = document.getElementById("noteInput").value.trim();
+  const author = document.getElementById("noteAuthor").value.trim();
+  if (!body) return;
+  try {
+    await apiFetch("/api/notes", {
+      method: "POST",
+      headers: {"Content-Type":"application/json"},
+      body: JSON.stringify({ url: currentSchoolUrl, body, author }),
+    });
+    document.getElementById("noteInput").value = "";
+    loadSchoolNotes(currentSchoolUrl);
+  } catch (e) {
+    alert("Failed to save note: " + e.message);
+  }
+});
+
+// openSchoolSummary is redefined below (after the original) to add notes loading.
+// JavaScript function declarations are hoisted — this final definition wins.
+
+// ─── Print report  ─────────────────────────────────────────────────
+document.getElementById("printReportBtn").addEventListener("click", () => {
+  if (!currentSchoolUrl) return;
+  const row = allRows.find(r => r.url === currentSchoolUrl);
+  const {c, h, m} = row ? rowCHM(row) : {c:0, h:0, m:0};
+
+  document.getElementById("printSchoolTitle").textContent =
+    currentSchoolUrl.replace(/^https?:\/\//, "");
+  document.getElementById("printScanDate").textContent =
+    "Scan date: " + (new Date()).toLocaleDateString("en-GB", {day:"numeric",month:"long",year:"numeric"});
+
+  document.getElementById("printRiskSection").innerHTML =
+    `<div style="margin:12px 0"><strong>Risk Score:</strong> ${riskScore(c,h,m)} / 100 &nbsp;` +
+    `<span style="color:#111">Critical: ${c}</span> &nbsp; ` +
+    `<span style="color:#dc2626">High: ${h}</span> &nbsp; ` +
+    `<span style="color:#d97706">Medium: ${m}</span></div>`;
+
+  const base = nvdEnabled ? schoolFindings : schoolFindings.filter(f => f.check_name !== "component_vulnerable_version");
+  const adverse = base.filter(f => f.status === "fail" || f.status === "warn")
+    .sort((a,b) => (SEV_ORDER[a.severity]??9) - (SEV_ORDER[b.severity]??9));
+  document.getElementById("printFindingsSection").innerHTML = adverse.length
+    ? `<table style="width:100%;border-collapse:collapse;font-size:12px">
+        <thead><tr style="background:#f8fafc"><th style="padding:6px;text-align:left">Severity</th>
+        <th style="padding:6px;text-align:left">Check</th>
+        <th style="padding:6px;text-align:left">Detail</th></tr></thead>
+        <tbody>${adverse.map(f =>
+          `<tr style="border-top:1px solid #e2e8f0">
+            <td style="padding:5px 6px"><span class="sev-pill ${f.severity}">${f.severity}</span></td>
+            <td style="padding:5px 6px;font-weight:500">${escHtml(f.check_name)}</td>
+            <td style="padding:5px 6px;color:#475569">${escHtml(f.detail)}</td>
+          </tr>`).join("")}</tbody></table>`
+    : '<p style="color:#16a34a;font-weight:600">No adverse findings — this school is clean.</p>';
+
+  document.getElementById("printReport").style.display = "block";
+  window.print();
+  document.getElementById("printReport").style.display = "none";
+});
+
+// ─── Quick wins   ───────────────────────────────────────────────────
+let woQuickWinsData = [];
+
+function renderQuickWins() {
+  const tbody = document.getElementById("woQuickWinsBody");
+  if (!woQuickWinsData.length) {
+    tbody.innerHTML = '<tr class="state-row"><td colspan="5">No quick win data.</td></tr>';
+    return;
+  }
+  tbody.innerHTML = woQuickWinsData.slice(0, 30).map((r, i) => {
+    const easeCls = r.ease_score === 3 ? "ease-easy" : r.ease_score === 2 ? "ease-medium" : "ease-hard";
+    const pct = Math.min(100, Math.round(r.school_count / Math.max(...woQuickWinsData.map(x=>x.school_count),1) * 100));
+    return `<tr>
+      <td style="font-weight:700;color:#64748b">${i+1}</td>
+      <td><span class="sev-pill ${r.severity}">${r.severity}</span></td>
+      <td>
+        <div style="font-weight:500;font-size:13px">${escHtml(r.check_name)}</div>
+        <div style="font-size:11px;color:#94a3b8">${escHtml(r.check_category)}</div>
+      </td>
+      <td>
+        <div style="display:flex;align-items:center;gap:6px">
+          <div style="flex:1;height:5px;background:#f1f5f9;border-radius:2px;min-width:50px">
+            <div style="width:${pct}%;height:100%;background:#2563eb;border-radius:2px;opacity:0.6"></div>
+          </div>
+          <span style="font-weight:700;font-size:13px">${r.school_count}</span>
+          <span style="font-size:11px;color:#94a3b8">(${r.pct_schools}%)</span>
+        </div>
+      </td>
+      <td><span class="${easeCls}">${escHtml(r.ease_label)}</span></td>
+    </tr>`;
+  }).join("");
+}
+
+// ─── LA / Region summary ─────────────────────────────────────────────────────
+let woLaSummaryData = [];
+function renderLaSummary(data) {
+  woLaSummaryData = data || [];
+  const hasLaData = woLaSummaryData.some(r => r.la_name && r.la_name.trim());
+  const noDataEl = document.getElementById("woLaNoData");
+  const tableEl  = document.getElementById("woLaSummaryTable");
+  if (!hasLaData) {
+    if (noDataEl) noDataEl.style.display = "";
+    if (tableEl)  tableEl.style.display  = "none";
+    return;
+  }
+  if (noDataEl) noDataEl.style.display = "none";
+  if (tableEl)  tableEl.style.display  = "";
+  const tbody = document.getElementById("woLaSummaryBody");
+  tbody.innerHTML = woLaSummaryData.map(r => {
+    const label = escHtml(r.la_name || r.business_unit || r.url || "—");
+    return `<tr>
+      <td style="font-weight:500;font-size:13px">${label}</td>
+      <td style="text-align:center">${r.school_count}</td>
+      <td style="text-align:center">${r.critical ? `<span class="sev-pill critical">${r.critical}</span>` : "—"}</td>
+      <td style="text-align:center">${r.high     ? `<span class="sev-pill high">${r.high}</span>`     : "—"}</td>
+      <td style="text-align:center">${r.medium   ? `<span class="sev-pill medium">${r.medium}</span>` : "—"}</td>
+      <td>
+        <button class="btn" style="font-size:11px;padding:3px 8px"
+          onclick="exportLaReport(${JSON.stringify(r.la_name || r.business_unit || '')})">
+          ⬇ Export
+        </button>
+      </td>
+    </tr>`;
+  }).join("");
+}
+
+async function exportLaReport(laName) {
+  const params = new URLSearchParams({ runkey: currentRunkey });
+  if (laName) params.set("la_name", laName);
+  window.location = `/api/export?${params}`;
+}
+
+// ─── Issue trends chart   ───────────────────────────────────────────
+let woCheckTrendsData = null;
+const _CHART_COLORS = [
+  "#2563eb","#dc2626","#16a34a","#d97706","#7c3aed",
+  "#0891b2","#be185d","#65a30d","#ea580c","#6366f1",
+];
+
+function renderCheckTrendsChart(data) {
+  const container = document.getElementById("woTrendsChart");
+  if (!data || !data.runs || !data.runs.length) {
+    container.innerHTML = '<div style="color:#94a3b8;font-size:13px">No trend data available — run at least 2 scans to see trends.</div>';
+    return;
+  }
+  const checks = Object.keys(data.data);
+  if (!checks.length) {
+    container.innerHTML = '<div style="color:#94a3b8;font-size:13px">No adverse findings to trend.</div>';
+    return;
+  }
+
+  const W=600, H=200, PL=40, PR=12, PT=10, PB=24;
+  const iW = W-PL-PR, iH = H-PT-PB;
+  const n  = data.runs.length;
+  const allVals = checks.flatMap(c => data.data[c]);
+  const maxVal  = Math.max(...allVals, 1);
+
+  const xPos = i => PL + (n>1 ? (i/(n-1))*iW : iW/2);
+  const yPos = v => PT + iH - (v/maxVal)*iH;
+
+  let legend = '<div class="trend-legend">';
+  let svgLines = "";
+
+  checks.forEach((check, ci) => {
+    const color  = _CHART_COLORS[ci % _CHART_COLORS.length];
+    const series = data.data[check];
+    const pts = series.map((v,i) => `${xPos(i).toFixed(1)},${yPos(v).toFixed(1)}`).join(" ");
+    svgLines += `<polyline points="${pts}" fill="none" stroke="${color}" stroke-width="2"
+      stroke-linejoin="round" stroke-linecap="round" opacity="0.85"/>`;
+    // dots
+    series.forEach((v,i) => {
+      svgLines += `<circle cx="${xPos(i).toFixed(1)}" cy="${yPos(v).toFixed(1)}" r="3" fill="${color}"/>`;
+    });
+    legend += `<div class="trend-legend-item">
+      <div class="trend-legend-dot" style="background:${color}"></div>
+      <span>${escHtml(check)}</span>
+    </div>`;
+  });
+  legend += "</div>";
+
+  // X axis labels (run dates)
+  let xLabels = "";
+  data.runs.forEach((rk, i) => {
+    xLabels += `<text x="${xPos(i).toFixed(1)}" y="${(PT+iH+14).toFixed(1)}"
+      text-anchor="middle" font-size="8" fill="#94a3b8">${rk.slice(0,10)}</text>`;
+  });
+
+  // Y axis labels
+  const yLabels = `
+    <text x="${PL-4}" y="${(PT+4).toFixed(1)}" text-anchor="end" font-size="9" fill="#94a3b8">${maxVal}</text>
+    <text x="${PL-4}" y="${(PT+iH+3).toFixed(1)}" text-anchor="end" font-size="9" fill="#94a3b8">0</text>`;
+
+  container.innerHTML = legend + `<svg width="${W}" height="${H}" style="overflow:visible"
+      xmlns="http://www.w3.org/2000/svg">
+    <line x1="${PL}" y1="${PT}" x2="${PL}" y2="${PT+iH}" stroke="#e2e8f0" stroke-width="1"/>
+    <line x1="${PL}" y1="${PT+iH}" x2="${PL+iW}" y2="${PT+iH}" stroke="#e2e8f0" stroke-width="1"/>
+    ${yLabels}${xLabels}${svgLines}
+  </svg>`;
+}
+
+document.getElementById("navAnalysis").addEventListener("click", openWorstOffenders);
+
+// Activate trends chart on tab switch
+document.getElementById("woOverlay").querySelectorAll(".tab-btn").forEach(btn => {
+  if (btn.dataset.tab === "trends") {
+    btn.addEventListener("click", () => {
+      if (woCheckTrendsData) renderCheckTrendsChart(woCheckTrendsData);
+    });
+  }
+});
+
+// ─── Suppressions expiry warning  ──────────────────────────────────
+async function checkSuppressionExpiry() {
+  try {
+    const w = await apiFetch("/api/suppress/expiry-warning");
+    const btn = document.getElementById("suppressionsBtn");
+    if (w.expiring_soon > 0) {
+      const existing = btn.querySelector(".expiry-warn-badge");
+      if (!existing) {
+        const badge = document.createElement("span");
+        badge.className = "expiry-warn-badge";
+        badge.textContent = `${w.expiring_soon} expiring`;
+        badge.title = `${w.expiring_soon} suppression(s) expiring within ${w.within_days} days`;
+        btn.appendChild(badge);
+      }
+    }
+  } catch (_) {}
+}
+
 // ─── Boot ────────────────────────────────────────────────────────────────────
+async function populateSuffixFilter() {
+  const suffixes = await apiFetch("/api/domain-suffixes").catch(() => []);
+  const sel = document.getElementById("suffixFilter");
+  suffixes.forEach(s => {
+    const opt = document.createElement("option");
+    opt.value = s;
+    opt.textContent = s;
+    sel.appendChild(opt);
+  });
+}
+
+async function populateLaFilter() {
+  const data = await apiFetch("/api/la-names").catch(() => []);
+  const sel = document.getElementById("laFilter");
+  data.forEach(name => {
+    const opt = document.createElement("option");
+    opt.value = name; opt.textContent = name;
+    sel.appendChild(opt);
+  });
+}
+
+async function init() {
+  // Parallel startup fetches
+  await Promise.all([loadRemediation(), checkSuppressionExpiry(), populateSuffixFilter(), populateLaFilter()]);
+
+  let runs;
+  try { runs = await apiFetch("/api/runs"); }
+  catch (e) {
+    document.getElementById("statsBar").textContent = "Failed to load runs — is the server running?";
+    return;
+  }
+  const sel = document.getElementById("runSelect");
+  if (!runs.length) { sel.innerHTML = '<option>No runs found</option>'; return; }
+  runs.forEach((run, i) => {
+    const date = run.started_at.replace("T"," ").slice(0,16);
+    const opt  = document.createElement("option");
+    opt.value  = run.runkey;
+    opt.textContent = `${date}  ·  ${run.total_targets ?? "?"} schools  ·  ${run.total_findings ?? "?"} findings`;
+    if (i === 0) opt.selected = true;
+    sel.appendChild(opt);
+  });
+  await loadRun(runs[0].runkey);
+}
 init();
 </script>
 </body>
