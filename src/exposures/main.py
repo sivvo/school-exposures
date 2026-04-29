@@ -10,12 +10,11 @@ import csv as csv_mod
 import json
 import sys
 import uuid
+import structlog
+import typer
 from datetime import date
 from pathlib import Path
 from typing import Optional
-
-import structlog
-import typer
 from dotenv import load_dotenv
 
 # Load .env before anything else so env-var overrides in config.py see them
@@ -48,11 +47,11 @@ def _configure_logging(level: str = "INFO") -> None:
         cache_logger_on_first_use=True,
     )
 
-# ---------------------------------------------------------------------------
+
 # Runkey generation
 # Used to create a unique run identifier in order to group results and track 
 # deltas between runs
-# ---------------------------------------------------------------------------
+
 def generate_runkey() -> str:
     """Generate a runkey in format YYYY-MM-DD-<8-char-uuid>."""
     today = date.today().strftime("%Y-%m-%d")
@@ -67,17 +66,13 @@ app = typer.Typer(
     invoke_without_command=True,
 )
 
-# Sub-app for the 'scan' subcommand.  We attach it as a group so that
-# `exposures scan [OPTIONS]` works correctly regardless of how many
-# top-level commands are registered.
+
 scan_app = typer.Typer(name="scan", help="Scan URLs for cyber security exposure.", add_completion=False)
 app.add_typer(scan_app, name="scan")
 
-# ---------------------------------------------------------------------------
-# Capability check - show which functions are available for scanning
+#  show which functions are available for scanning / or have been invoked
 # (e.g., key is available in the config file)
-# or which functions user has called in the parameters
-# ---------------------------------------------------------------------------
+
 def _capability_line(status: str, label: str, detail: str) -> None:
     colours = {
         "OK":       typer.colors.GREEN,
@@ -88,7 +83,6 @@ def _capability_line(status: str, label: str, detail: str) -> None:
     badge = f"[{status}]"
     typer.secho(f"  {badge:<12}", fg=colours.get(status, typer.colors.WHITE), nl=False)
     typer.echo(f" {label:<14} {detail}")
-
 
 def print_capabilities(cfg) -> None:
     """Print a capability summary before the scan starts."""
@@ -110,7 +104,12 @@ def print_capabilities(cfg) -> None:
     if not cfg.output.send_to_splunk and not cfg.output.log_locally:
         _capability_line("DISABLED", "Output", "both send_to_splunk and log_locally are false — findings will be discarded")
 
-    # Censys
+    if "port_scan" in cfg.checks.enabled:
+        _capability_line("OK", "Port Scan",
+                         f"direct TCP port scan active ({cfg.concurrency.port_scan_workers} workers)")
+    else:
+        _capability_line("INFO", "Port Scan", "port_scan not in enabled checks")
+
     if "censys_ports" in cfg.checks.enabled:
         if cfg.censys.api_id and cfg.censys.api_secret:
             _capability_line("OK", "Censys",
@@ -131,13 +130,28 @@ def print_capabilities(cfg) -> None:
                              "live CVE lookups active, no API key — rate-limited to 5 req/30s "
                              "(get a free key at nvd.nist.gov/developers/request-an-api-key)")
 
+    if "safe_browsing" in cfg.checks.enabled:
+        import os
+        if os.environ.get("GOOGLE_SAFE_BROWSING_API_KEY"):
+            _capability_line("OK", "Safe Browsing",
+                             "Google Safe Browsing API key present")
+        else:
+            _capability_line("DISABLED", "Safe Browsing",
+                             "GOOGLE_SAFE_BROWSING_API_KEY not set — safe_browsing check will produce no findings")
+
     # History
     if cfg.history.enabled:
         _capability_line("OK", "History", f"SQLite at {cfg.history.db_path}")
     else:
         _capability_line("INFO", "History", "disabled — diff and delta events unavailable")
 
-    # Enabled checks
+    _capability_line("INFO", "GIAS metadata",
+                     "la_name, region, urn, school_type, phase columns read from CSV if present")
+
+    # Dashboard auth
+    _capability_line("INFO", "Dashboard auth",
+                     "configured via DASHBOARD_USERNAME / DASHBOARD_PASSWORD env vars in ui/app.py")
+
     _capability_line("INFO", "Checks",
                      ", ".join(cfg.checks.enabled))
 
@@ -185,7 +199,20 @@ def scan(
         help="Logging level (DEBUG, INFO, WARNING, ERROR)",
     ),
 ) -> None:
-    """Scan a list of URLs for cyber security exposure and send findings to Splunk."""
+    """Scan URLs for cyber security exposure.
+
+    Reads targets from the CSV configured in settings.yaml and runs the enabled
+    checks against each URL. Results are written to local NDJSON files and/or
+    sent to a Splunk HEC endpoint depending on the output configuration.
+
+    Use --checks to override the enabled checks list, --output to override the
+    output mode, --dry-run to parse targets without scanning, and --resume-runkey
+    to continue a previously interrupted run.
+
+    GIAS metadata (la_name, region, urn, school_type, phase) is read from optional
+    extra columns in the CSV and stored with every finding in the history database,
+    enabling LA-level grouping in the dashboard.
+    """
 
     _configure_logging(log_level)
     log = structlog.get_logger(__name__)
@@ -211,7 +238,7 @@ def scan(
 
     if checks_override:
         requested = [c.strip() for c in checks_override.split(",") if c.strip()]
-        known = {"http_headers", "tls", "dns_records", "email_security", "components", "censys_ports", "insecure_services", "open_redirect", "cert_transparency", "cloud_storage"}
+        known = {"http_headers", "mixed_content", "tls", "dns_records", "email_security", "components", "censys_ports", "port_scan", "insecure_services", "open_redirect", "cert_transparency", "cloud_storage", "domain_expiry", "safe_browsing", "dnsbl", "subdomain_enum"}
         unknown = set(requested) - known
         if unknown:
             typer.echo(f"WARNING: Unknown checks specified: {', '.join(sorted(unknown))}", err=True)
@@ -251,11 +278,10 @@ def scan(
         typer.echo(f"ERROR: Scan failed: {exc}", err=True)
         raise typer.Exit(code=1)
 
-    # ------------------------------------------------------------------
     # Print summary to stdout
     # TODO: this needs to be configurable, in a deployed server mode we don't 
     # want to be spamming the console
-    # ------------------------------------------------------------------
+
     if not cfg.run.dry_run:
         typer.echo("\n" + "=" * 60)
         typer.echo(f"  Scan complete — runkey: {effective_runkey}")

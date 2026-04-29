@@ -6,19 +6,11 @@ streaming findings to output writers, and maintaining a checkpoint
 for resume capability.
 """
 from __future__ import annotations
-
-import asyncio
-import csv
-import json
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse, urlunparse
-
-import structlog
-import tldextract
 from tqdm.asyncio import tqdm
-
 from .checks.base import BaseCheck
 from .checks.censys_ports import CensysPortsCheck
 from .checks.cert_transparency import CertTransparencyCheck
@@ -31,7 +23,10 @@ from .checks.email_security import EmailSecurityCheck
 from .checks.http_headers import HttpHeadersCheck
 from .checks.insecure_services import InsecureServicesCheck
 from .checks.open_redirect import OpenRedirectCheck
+from .checks.mixed_content import MixedContentCheck
+from .checks.port_scan import PortScanCheck
 from .checks.safe_browsing import SafeBrowsingCheck
+from .checks.subdomain import SubdomainCheck
 from .checks.tls import TLSCheck
 from .config import Config
 from .history import HistoryStore
@@ -39,11 +34,47 @@ from .nvd import NVDClient
 from .models import CheckCategory, Finding, RunSummary, ScanTarget, Severity, Status
 from .output.ndjson import NDJSONWriter
 from .output.splunk_hec import SplunkHECWriter
+import asyncio
+import csv
+import ipaddress
+import json
+import structlog
+import tldextract
 
 logger = structlog.get_logger(__name__)
 
+_PRIVATE_NETWORKS = [
+    ipaddress.ip_network("10.0.0.0/8"),
+    ipaddress.ip_network("172.16.0.0/12"),
+    ipaddress.ip_network("192.168.0.0/16"),
+    ipaddress.ip_network("127.0.0.0/8"),
+    ipaddress.ip_network("169.254.0.0/16"),
+    ipaddress.ip_network("::1/128"),
+    ipaddress.ip_network("fc00::/7"),
+]
+_RESERVED_HOSTNAMES = {"localhost", "localhost.localdomain", "0.0.0.0"}
+_RESERVED_TLD_SUFFIXES = (".internal", ".local", ".corp", ".home", ".lan", ".intranet", ".localdomain")
+
+
+def _is_ssrf_risk(host: str) -> bool:
+    """Return True if the host looks like an internal/private address """
+    h = host.lower()
+    if h in _RESERVED_HOSTNAMES:
+        return True
+    if any(h.endswith(tld) for tld in _RESERVED_TLD_SUFFIXES):
+        return True
+    try:
+        addr = ipaddress.ip_address(h)
+        return any(addr in net for net in _PRIVATE_NETWORKS)
+    except ValueError:
+        pass
+    return False
+
+
 def normalise_url(raw: str) -> str:
-    """Normalise a URL: add https:// if schemeless, strip trailing slash, lowercase host."""
+    """Normalise a URL: add https:// if schemeless, strip trailing slash, lowercase host.
+    Raises ValueError for private/internal addresses to prevent SSRF 
+    """
     raw = raw.strip()
     if not raw:
         raise ValueError("Empty URL")
@@ -53,6 +84,12 @@ def normalise_url(raw: str) -> str:
         raw = "https://" + raw
 
     parsed = urlparse(raw)
+
+    # SSRF protection — reject private/internal addresses
+    host = parsed.hostname or ""
+    if _is_ssrf_risk(host):
+        raise ValueError(f"URL hostname '{host}' is in a private/reserved range (SSRF risk rejected)")
+
     # Lowercase the host
     normalized = parsed._replace(
         scheme=parsed.scheme.lower(),
@@ -87,6 +124,12 @@ def load_targets(csv_path: str | Path) -> list[ScanTarget]:
             raise ValueError("CSV must have a 'url' column")
         url_key = field_map["url"]
         bu_key = field_map.get("business_unit")
+        # Optional GIAS metadata columns
+        urn_key        = field_map.get("urn")
+        la_key         = field_map.get("la_name")
+        region_key     = field_map.get("region")
+        type_key       = field_map.get("school_type")
+        phase_key      = field_map.get("phase")
 
         for row in reader:
             raw_url = (row.get(url_key) or "").strip()
@@ -102,6 +145,11 @@ def load_targets(csv_path: str | Path) -> list[ScanTarget]:
                         original_url=raw_url,
                         business_unit=business_unit,
                         domain=domain,
+                        urn=       (row.get(urn_key)    or "").strip() if urn_key    else "",
+                        la_name=   (row.get(la_key)     or "").strip() if la_key     else "",
+                        region=    (row.get(region_key) or "").strip() if region_key else "",
+                        school_type=(row.get(type_key)  or "").strip() if type_key   else "",
+                        phase=     (row.get(phase_key)  or "").strip() if phase_key  else "",
                     )
                 )
             except Exception as exc:
@@ -109,10 +157,9 @@ def load_targets(csv_path: str | Path) -> list[ScanTarget]:
 
     return targets
 
-
-# ---------------------------------------------------------------------------
+#################### 
 # Checkpoint
-# ---------------------------------------------------------------------------
+####################
 def checkpoint_path(output_dir: str | Path, runkey: str) -> Path:
     return Path(output_dir) / "checkpoints" / f"{runkey}.json"
 
@@ -128,7 +175,6 @@ def load_checkpoint(output_dir: str | Path, runkey: str) -> dict[str, bool]:
             pass
     return {}
 
-
 def save_checkpoint(output_dir: str | Path, runkey: str, completed: dict[str, bool]) -> None:
     """Persist checkpoint to disk."""
     cp_path = checkpoint_path(output_dir, runkey)
@@ -137,19 +183,15 @@ def save_checkpoint(output_dir: str | Path, runkey: str, completed: dict[str, bo
         json.dump(completed, fh)
 
 
-# ---------------------------------------------------------------------------
 # Check registry
-# ---------------------------------------------------------------------------
-
-
 def build_checks(config: Config) -> dict[str, BaseCheck]:
     """Instantiate all enabled check objects."""
     http_sem = asyncio.Semaphore(config.concurrency.http_workers)
     dns_sem = asyncio.Semaphore(config.concurrency.dns_workers)
     tls_sem = asyncio.Semaphore(config.concurrency.tls_workers)
     censys_sem = asyncio.Semaphore(config.concurrency.censys_qps)
-
     nvd_client = NVDClient(api_key=config.checks.components.nvd_api_key)
+    port_scan_sem = asyncio.Semaphore(config.concurrency.port_scan_workers)
 
     available: dict[str, BaseCheck] = {
         "http_headers": HttpHeadersCheck(config=config.checks.http_headers),
@@ -165,14 +207,14 @@ def build_checks(config: Config) -> dict[str, BaseCheck]:
         "domain_expiry":  DomainExpiryCheck(),
         "safe_browsing":  SafeBrowsingCheck(api_key=config.checks.safe_browsing.api_key, semaphore=http_sem),
         "dnsbl":          DNSBLCheck(semaphore=dns_sem),
+        "port_scan":      PortScanCheck(semaphore=port_scan_sem),
+        "mixed_content":  MixedContentCheck(semaphore=http_sem),
+        "subdomain_enum": SubdomainCheck(http_semaphore=http_sem, dns_semaphore=dns_sem),
     }
     return {name: check for name, check in available.items() if name in config.checks.enabled}
 
 
-# ---------------------------------------------------------------------------
-# Per-target scan
-# ---------------------------------------------------------------------------
-
+######## Per-target scan
 async def scan_target(
     target: ScanTarget,
     runkey: str,
@@ -232,10 +274,7 @@ async def scan_target(
     return all_findings
 
 
-# ---------------------------------------------------------------------------
 # Findings stat helpers
-# ---------------------------------------------------------------------------
-
 def _update_summary_stats(summary: RunSummary, findings: list[Finding]) -> None:
     summary.total_findings += len(findings)
     for f in findings:
@@ -248,10 +287,8 @@ def _update_summary_stats(summary: RunSummary, findings: list[Finding]) -> None:
 async def run_scan(config: Config, runkey: str) -> RunSummary:
     """Full scan execution: load targets, run checks, write output, checkpoint."""
     started_at = datetime.now(timezone.utc)
-
-    # ------------------------------------------------------------------
+    
     # Load and normalise targets
-    # ------------------------------------------------------------------
     logger.info("loading_targets", csv_path=config.input.csv_path)
     try:
         targets = load_targets(config.input.csv_path)
@@ -261,9 +298,7 @@ async def run_scan(config: Config, runkey: str) -> RunSummary:
 
     logger.info("targets_loaded", count=len(targets))
 
-    # ------------------------------------------------------------------
     # Dry run - no scans
-    # ------------------------------------------------------------------
     if config.run.dry_run:
         print(f"\nDRY RUN — runkey: {runkey}")
         print(f"Would scan {len(targets)} target(s):\n")
@@ -278,9 +313,7 @@ async def run_scan(config: Config, runkey: str) -> RunSummary:
             total_targets=len(targets),
         )
 
-    # ------------------------------------------------------------------
     # Checkpoint / resume
-    # ------------------------------------------------------------------
     completed_urls: dict[str, bool] = {}
     resume_key = config.run.resume_runkey
     if resume_key:
@@ -349,20 +382,21 @@ async def run_scan(config: Config, runkey: str) -> RunSummary:
         history = HistoryStore(config.history.db_path)
         history.upsert_run(summary)  # register the run early so delta can find it
 
-    async def _write_finding(finding: Finding) -> None:
+    _loop = asyncio.get_running_loop()
+
+    async def _write_findings(findings: list[Finding]) -> None:
         if ndjson_writer:
-            await ndjson_writer.write(finding)
+            for finding in findings:
+                await ndjson_writer.write(finding)
         if splunk_writer:
-            await splunk_writer.write(finding)
+            for finding in findings:
+                await splunk_writer.write(finding)
         if history:
-            history.store_finding(finding)
+            await _loop.run_in_executor(None, history.store_findings_batch, findings)
 
     ndjson_writer, splunk_writer = await _open_writers()
 
     try:
-        # ------------------------------------------------------------------
-        # Scan each target with progress bar
-        # ------------------------------------------------------------------
         checkpoint_lock = asyncio.Lock()
 
         async def process_target(target: ScanTarget) -> None:
@@ -372,9 +406,8 @@ async def run_scan(config: Config, runkey: str) -> RunSummary:
                 findings = await scan_target(target, runkey, checks)
                 target_log.info("target_complete", findings_count=len(findings))
 
-                # Stream findings to output writers
-                for finding in findings:
-                    await _write_finding(finding)
+                # Stream findings to output writers (batch history write)
+                await _write_findings(findings)
 
                 # Update summary stats
                 async with checkpoint_lock:
@@ -386,9 +419,7 @@ async def run_scan(config: Config, runkey: str) -> RunSummary:
             except Exception as exc:
                 target_log.error("target_scan_failed", error=str(exc))
                 summary.errors.append(f"{target.url}: {exc}")
-                async with checkpoint_lock:
-                    completed_urls[target.url] = True
-                    save_checkpoint(config.output.local_output_dir, runkey, completed_urls)
+                # Do NOT mark as completed so a --resume attempt will retry this target
 
         # Run all targets with tqdm progress bar
         # Using asyncio.gather with a semaphore to limit total concurrency at the
