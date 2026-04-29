@@ -24,11 +24,21 @@ CREATE TABLE IF NOT EXISTS findings (
     status      TEXT NOT NULL,
     severity    TEXT NOT NULL,
     detail      TEXT NOT NULL,
-    timestamp   TEXT NOT NULL
+    timestamp   TEXT NOT NULL,
+    la_name     TEXT NOT NULL DEFAULT '',
+    region      TEXT NOT NULL DEFAULT '',
+    urn         TEXT NOT NULL DEFAULT '',
+    school_type TEXT NOT NULL DEFAULT '',
+    phase       TEXT NOT NULL DEFAULT '',
+    evidence    TEXT NOT NULL DEFAULT '{}'
 );
 
-CREATE INDEX IF NOT EXISTS idx_findings_runkey ON findings (runkey);
-CREATE INDEX IF NOT EXISTS idx_findings_url    ON findings (url);
+CREATE INDEX IF NOT EXISTS idx_findings_runkey          ON findings (runkey);
+CREATE INDEX IF NOT EXISTS idx_findings_url             ON findings (url);
+CREATE INDEX IF NOT EXISTS idx_findings_runkey_sev      ON findings (runkey, severity);
+CREATE INDEX IF NOT EXISTS idx_findings_url_check_status ON findings (url, check_name, status);
+CREATE INDEX IF NOT EXISTS idx_findings_runkey_url_cat  ON findings (runkey, url, check_category);
+CREATE INDEX IF NOT EXISTS idx_findings_la              ON findings (runkey, la_name);
 
 CREATE TABLE IF NOT EXISTS runs (
     runkey              TEXT PRIMARY KEY,
@@ -79,6 +89,30 @@ class HistoryStore:
     def _init_db(self) -> None:
         with self._conn() as conn:
             conn.executescript(_SCHEMA)
+        self._migrate_db()
+
+    def _migrate_db(self) -> None:
+        """Safe migration: add new columns to existing DBs using ALTER TABLE.
+
+        Each ALTER TABLE is wrapped in a try/except so it's a no-op on fresh
+        DBs (where the column already exists from _SCHEMA) or on re-runs.
+        """
+        new_columns = [
+            ("la_name",     "TEXT NOT NULL DEFAULT ''"),
+            ("region",      "TEXT NOT NULL DEFAULT ''"),
+            ("urn",         "TEXT NOT NULL DEFAULT ''"),
+            ("school_type", "TEXT NOT NULL DEFAULT ''"),
+            ("phase",       "TEXT NOT NULL DEFAULT ''"),
+            ("evidence",    "TEXT NOT NULL DEFAULT '{}'"),
+        ]
+        with self._conn() as conn:
+            for col_name, col_def in new_columns:
+                try:
+                    conn.execute(
+                        f"ALTER TABLE findings ADD COLUMN {col_name} {col_def}"
+                    )
+                except sqlite3.OperationalError:
+                    pass  # column already exists
 
     def store_finding(self, finding: Finding) -> None:
         ts = (
@@ -91,8 +125,9 @@ class HistoryStore:
                 """
                 INSERT INTO findings
                     (runkey, url, business_unit, check_category, check_name,
-                     status, severity, detail, timestamp)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                     status, severity, detail, timestamp,
+                     la_name, region, urn, school_type, phase, evidence)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     finding.runkey,
@@ -104,7 +139,53 @@ class HistoryStore:
                     finding.severity.value,
                     finding.detail,
                     ts,
+                    finding.la_name,
+                    finding.region,
+                    finding.urn,
+                    finding.school_type,
+                    finding.phase,
+                    json.dumps(finding.evidence),
                 ),
+            )
+
+    def store_findings_batch(self, findings: list[Finding]) -> None:
+        """Insert multiple findings in a single transaction — significantly faster at scale."""
+        if not findings:
+            return
+        rows = []
+        for finding in findings:
+            ts = (
+                finding.timestamp.isoformat()
+                if finding.timestamp
+                else datetime.now(timezone.utc).isoformat()
+            )
+            rows.append((
+                finding.runkey,
+                finding.url,
+                finding.business_unit,
+                finding.check_category.value,
+                finding.check_name,
+                finding.status.value,
+                finding.severity.value,
+                finding.detail,
+                ts,
+                finding.la_name,
+                finding.region,
+                finding.urn,
+                finding.school_type,
+                finding.phase,
+                json.dumps(finding.evidence),
+            ))
+        with self._conn() as conn:
+            conn.executemany(
+                """
+                INSERT INTO findings
+                    (runkey, url, business_unit, check_category, check_name,
+                     status, severity, detail, timestamp,
+                     la_name, region, urn, school_type, phase, evidence)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                rows,
             )
 
     def upsert_run(self, summary: RunSummary) -> None:
