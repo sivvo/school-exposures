@@ -32,3 +32,6 @@ htmlcov/                # HTML coverage reports
 *.sqlite
 backup/*
 output/*
+bugs.md
+security.md
+tasks.md
