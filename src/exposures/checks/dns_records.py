@@ -292,17 +292,33 @@ class DNSRecordsCheck(BaseCheck):
                 ]
             return []
         except dns.resolver.NXDOMAIN:
-            severity = Severity.HIGH
-            detail = f"CNAME '{cname_target}' points to a non-existent domain (potential subdomain takeover)"
+            # Confidence depends entirely on whether the CNAME target matches a known
+            # claimable cloud service. A dangling CNAME to an unrecognised domain may
+            # just be stale/harmless — it isn't a real takeover risk unless the target
+            # is actually a service an attacker could go and register. Don't score
+            # these the same: "likely" (matched a claimable service) must rank clearly
+            # above "possible" (generic NXDOMAIN, unconfirmed) so operators see the
+            # confirmed-risk case first and don't chase the unconfirmed one as urgent
             if matched_pattern:
-                detail = f"CNAME '{cname_target}' matches takeover-prone pattern '{matched_pattern}' and NXDOMAIN — likely subdomain takeover"
-                severity = Severity.HIGH
+                return [
+                    self.make_finding(
+                        target, runkey, "dns_dangling_cname",
+                        Status.FAIL, Severity.HIGH,
+                        f"CNAME '{cname_target}' matches takeover-prone service '{matched_pattern}' "
+                        "and does not resolve — likely subdomain takeover, verify and reclaim/remove "
+                        "the DNS record promptly",
+                        evidence={"cname_target": cname_target, "pattern": matched_pattern, "confidence": "likely"},
+                    )
+                ]
             return [
                 self.make_finding(
                     target, runkey, "dns_dangling_cname",
-                    Status.FAIL, severity,
-                    detail,
-                    evidence={"cname_target": cname_target, "pattern": matched_pattern},
+                    Status.WARN, Severity.MEDIUM,
+                    f"CNAME '{cname_target}' points to a domain that no longer resolves — "
+                    "possible dangling reference. This is only a real takeover risk if the "
+                    "target is a claimable public service, which could not be confirmed "
+                    "automatically — treat as lower confidence than a matched-pattern finding",
+                    evidence={"cname_target": cname_target, "pattern": None, "confidence": "possible"},
                 )
             ]
         except Exception:
