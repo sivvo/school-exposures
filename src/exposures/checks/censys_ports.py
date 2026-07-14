@@ -24,6 +24,32 @@ RISKY_PORTS: dict[int, tuple[str, Severity, str]] = {
     22: ("ssh_exposed", Severity.INFO, "SSH exposed to internet on port 22"),
 }
 
+# Censys L7 protocol fingerprint (services[].service_name, uppercase) expected for each
+# risky port. Used to confirm the port-number assumption before treating a finding as
+# high-confidence — Censys actively fingerprints the protocol, so unlike a bare TCP
+# port_scan we can actually check "is this really MySQL" rather than just guessing from
+# the port number. Ports not listed here (currently: none) fall back to port-only matching.
+_EXPECTED_SERVICE_NAMES: dict[int, set[str]] = {
+    21:    {"FTP"},
+    23:    {"TELNET"},
+    25:    {"SMTP"},
+    3389:  {"RDP"},
+    5900:  {"VNC"},
+    3306:  {"MYSQL"},
+    5432:  {"POSTGRESQL"},
+    27017: {"MONGODB"},
+    6379:  {"REDIS"},
+    9200:  {"ELASTICSEARCH", "HTTP"},  # Elasticsearch's API is HTTP — Censys may tag either
+    22:    {"SSH"},
+}
+
+# Short human label for risks ports used in the unconfirmed-protocol message
+_PORT_LABELS: dict[int, str] = {
+    21: "FTP", 23: "Telnet", 25: "SMTP", 3389: "RDP", 5900: "VNC",
+    3306: "MySQL", 5432: "PostgreSQL", 27017: "MongoDB", 6379: "Redis",
+    9200: "Elasticsearch", 22: "SSH",
+}
+
 
 class CensysPortsCheck(BaseCheck):
     name = "censys_ports"
@@ -101,6 +127,7 @@ class CensysPortsCheck(BaseCheck):
         for port_info in all_ports:
             port = port_info["port"]
             ip = port_info["ip"]
+            censys_service_name = (port_info.get("service") or "").upper()
 
             if port in RISKY_PORTS:
                 check_name, severity, detail = RISKY_PORTS[port]
@@ -109,21 +136,51 @@ class CensysPortsCheck(BaseCheck):
                     continue
                 reported_checks.add(dedup_key)
 
-                status = Status.FAIL if severity in (Severity.CRITICAL, Severity.HIGH) else Status.INFO
+                # Confirm the port-number assumption against Censys's own L7 protocol
+                # fingerprint before treating this as a high-confidence finding
+                expected = _EXPECTED_SERVICE_NAMES.get(port, set())
+                protocol_confirmed = censys_service_name in expected
+
+                evidence: dict = {
+                    "ip": ip,
+                    "port": port,
+                    "censys_service_name": port_info.get("service", "unknown"),
+                    "protocol_confirmed": protocol_confirmed,
+                }
+
                 if severity == Severity.INFO:
+                    # SSH — never elevated, no confidence distinction needed
                     status = Status.INFO
-
-                # SSH: include host key info if available
-                evidence: dict = {"ip": ip, "port": port}
-
-                findings.append(
-                    self.make_finding(
-                        target, runkey, check_name,
-                        status, severity,
-                        f"{detail} (host: {ip})",
-                        evidence=evidence,
+                    findings.append(
+                        self.make_finding(
+                            target, runkey, check_name,
+                            status, severity,
+                            f"{detail} (host: {ip})",
+                            evidence=evidence,
+                        )
                     )
-                )
+                elif protocol_confirmed:
+                    findings.append(
+                        self.make_finding(
+                            target, runkey, check_name,
+                            Status.FAIL, severity,
+                            f"{detail} (host: {ip}) — confirmed by Censys as {censys_service_name}",
+                            evidence=evidence,
+                        )
+                    )
+                else:
+                    # Port number matches a risky service, but Censys's own protocol
+                    # fingerprint doesn't confirm it, so let's downgrade the severity 
+                    findings.append(
+                        self.make_finding(
+                            target, runkey, check_name,
+                            Status.WARN, Severity.MEDIUM,
+                            f"Port {port} is open on {ip} (commonly used for {_PORT_LABELS.get(port, 'this service')}), "
+                            f"but Censys identifies the running service as '{censys_service_name or 'unknown'}', not the expected "
+                            "protocol — unconfirmed, verify manually before treating this as a real exposure",
+                            evidence=evidence,
+                        )
+                    )
 
 
         return findings
