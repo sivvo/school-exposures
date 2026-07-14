@@ -1,10 +1,9 @@
 # Legal basis for scanning activity — Computer Misuse Act 1990
 
-2. The directly relevant precedent is NCSC's Web Check & Mail Check service
+The directly relevant precedent is NCSC's Web Check & Mail Check service
    Their stated legal basis: *"scanning and notifications are
    based on external observations, such as the version number publicly advertised by
-   the software."* That is the anchor for the Tier 1 checks below (passive,
-   externally-observable-only activity)
+   the software."* 
 
 ## Risk tiers
 
@@ -29,8 +28,8 @@ operator chose to serve publicly.
 ### `mixed_content`
 **What it does:** Fetches the public homepage HTML (capped 200KB), scans for
 `http://` sub-resource references.
-**Justification:** Same basis as `http_headers` — reading the content of a page the
-operator already serves to any visitor.
+**Justification:** Same basis as `http_headers` (reading the content of a page the
+operator already serves to any visitor)
 
 ### `tls`
 **What it does:** Standard TLS handshake to the public HTTPS port.
@@ -42,9 +41,8 @@ is accessed through a weak-cipher/weak-protocol connection.
 ### `dns_records` (A/AAAA/CAA/DNSSEC/dangling-CNAME sub-checks)
 **What it does:** Standard DNS resolution against records the domain's own
 nameservers are configured to answer publicly.
-**Justification:** DNS is a public directory protocol by design — every recursive
+**Justification:** DNS is a public directory protocol by design. Every recursive
 resolver on earth does this continuously.
-**Does not include:** excludes the AXFR zone-transfer sub-check.
 
 ### `email_security`
 **What it does:** DNS TXT/MX record lookups (SPF, DMARC, MX presence).
